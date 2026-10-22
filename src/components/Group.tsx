@@ -1,6 +1,5 @@
 import { useState, type ReactNode } from 'react'
 import type { Item } from '../db'
-import { Row } from './Row'
 
 function readFlag(key: string, fallback: boolean): boolean {
   try {
@@ -34,11 +33,11 @@ interface Props {
   title: string
   openCount: number
   done: Item[]
-  onPickCategory: (item: Item) => void
+  renderRow: (item: Item) => ReactNode
   children: ReactNode
 }
 
-export function Group({ id, title, openCount, done, onPickCategory, children }: Props) {
+export function Group({ id, title, openCount, done, renderRow, children }: Props) {
   const [collapsed, toggleCollapsed] = usePersistentToggle(`collapsed:${id}`, false)
   const [showDone, toggleDone] = usePersistentToggle(`showDone:${id}`, false)
 
@@ -62,9 +61,7 @@ export function Group({ id, title, openCount, done, onPickCategory, children }: 
               </button>
               {showDone && (
                 <ul className="rows">
-                  {done.map((item) => (
-                    <Row key={item.id} item={item} onPickCategory={onPickCategory} />
-                  ))}
+                  {done.map(renderRow)}
                 </ul>
               )}
             </div>
