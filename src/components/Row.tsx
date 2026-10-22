@@ -1,5 +1,9 @@
+import { PencilLine, Trash2 } from 'lucide-react'
 import { useRef, useState, type PointerEvent } from 'react'
-import { categoryKey } from '../categories'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 import type { Item } from '../db'
 import { toggleDone } from '../store'
 
@@ -8,12 +12,13 @@ const SWIPE_THRESHOLD = 80
 
 interface Props {
   item: Item
-  onPickCategory: (item: Item) => void
   onOpen: (item: Item) => void
   onDelete: (item: Item) => void
+  /** Desktop rows are denser and show hover actions instead of swipes. */
+  dense?: boolean
 }
 
-export function Row({ item, onPickCategory, onOpen, onDelete }: Props) {
+export function Row({ item, onOpen, onDelete, dense = false }: Props) {
   const done = item.doneAt !== null
   const [dx, setDx] = useState(0)
   const drag = useRef<{ x: number; y: number; swiping: boolean } | null>(null)
@@ -21,7 +26,8 @@ export function Row({ item, onPickCategory, onOpen, onDelete }: Props) {
   const suppressClick = useRef(false)
 
   function onPointerDown(e: PointerEvent) {
-    if (e.pointerType === 'mouse' && e.button !== 0) return
+    // Swipes are a touch gesture; with a mouse the hover buttons do the same jobs.
+    if (e.pointerType === 'mouse') return
     drag.current = { x: e.clientX, y: e.clientY, swiping: false }
   }
 
@@ -54,20 +60,39 @@ export function Row({ item, onPickCategory, onOpen, onDelete }: Props) {
     setDx(0)
   }
 
-  function guard(action: () => void) {
-    return () => {
-      if (!suppressClick.current) action()
-    }
-  }
-
   const armed = Math.abs(dx) >= SWIPE_THRESHOLD
+  const opening = dx > 0
+
   return (
-    <li className={done ? 'row row-done' : 'row'}>
-      <div className={`swipe-bg ${dx > 0 ? 'swipe-bg-open' : 'swipe-bg-delete'} ${armed ? 'swipe-armed' : ''}`} aria-hidden>
-        <span>{dx > 0 ? 'Details' : 'Delete'}</span>
-      </div>
+    <li className="group/row relative overflow-hidden border-b last:border-b-0">
+      {/* Revealed behind the row while swiping. */}
       <div
-        className={dx ? 'row-content row-dragging' : 'row-content'}
+        aria-hidden
+        className={cn(
+          'absolute inset-0 flex items-center gap-1.5 px-4 text-sm font-semibold transition-colors',
+          opening ? 'justify-start' : 'justify-end',
+          !armed && 'bg-muted text-muted-foreground',
+          armed && opening && 'bg-primary text-primary-foreground',
+          armed && !opening && 'bg-destructive text-destructive-foreground',
+        )}
+      >
+        {opening ? (
+          <>
+            <PencilLine className="size-4" /> Edit
+          </>
+        ) : (
+          <>
+            Delete <Trash2 className="size-4" />
+          </>
+        )}
+      </div>
+
+      <div
+        className={cn(
+          'relative flex touch-pan-y select-none items-center gap-3 bg-background',
+          dense ? 'min-h-11' : 'min-h-[52px]',
+          !dx && 'transition-transform duration-200 ease-out',
+        )}
         style={dx ? { transform: `translateX(${dx}px)` } : undefined}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -77,21 +102,54 @@ export function Row({ item, onPickCategory, onOpen, onDelete }: Props) {
           setDx(0)
         }}
       >
-        <button
-          className="check"
-          role="checkbox"
-          aria-checked={done}
+        <Checkbox
+          checked={done}
+          onCheckedChange={() => !suppressClick.current && toggleDone(item)}
           aria-label={done ? `Uncheck ${item.name}` : `Check ${item.name}`}
-          onClick={guard(() => toggleDone(item))}
+          className={cn(
+            // 22px box with a 44px invisible hit area around it.
+            'relative size-[22px] rounded-[5px] border-[1.5px] border-muted-foreground/70 shadow-none',
+            'after:absolute after:-inset-[11px] after:content-[""]',
+            'hover:border-foreground',
+            'data-[state=checked]:border-brand data-[state=checked]:bg-brand data-[state=checked]:text-brand-foreground',
+          )}
+        />
+        <button
+          className={cn(
+            'min-h-11 min-w-0 flex-1 py-2.5 text-left leading-snug [overflow-wrap:anywhere]',
+            dense ? 'text-[15px]' : 'text-[17px]',
+            done && 'text-muted-foreground line-through decoration-1',
+          )}
+          onClick={() => !suppressClick.current && onOpen(item)}
         >
-          <span className="check-box" />
-        </button>
-        <button className="row-name" onClick={guard(() => onOpen(item))}>
           {item.name}
         </button>
-        <button className="tag" onClick={guard(() => onPickCategory(item))} aria-label={`Change category of ${item.name}`}>
-          {categoryKey(item)}
-        </button>
+
+        {/* Hover actions: only on devices with a real pointer (touch uses swipes). */}
+        <div className="hidden gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:flex">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" onClick={() => onOpen(item)} aria-label={`Edit ${item.name}`}>
+                <PencilLine className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Edit</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 text-muted-foreground hover:text-destructive"
+                onClick={() => onDelete(item)}
+                aria-label={`Delete ${item.name}`}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Delete</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
     </li>
   )

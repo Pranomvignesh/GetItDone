@@ -8,7 +8,7 @@ export async function getOverrides(): Promise<Overrides> {
   return ((await db.settings.get(OVERRIDES_KEY))?.value as Overrides) ?? {}
 }
 
-export async function addFromInput(raw: string): Promise<number> {
+export async function addFromInput(raw: string): Promise<Item[]> {
   const parsed = parseInput(raw, await getOverrides())
   const now = Date.now()
   // Offset by index so items added together keep their typed order when sorted by newest.
@@ -26,7 +26,7 @@ export async function addFromInput(raw: string): Promise<number> {
     dirty: 1,
   }))
   await db.items.bulkAdd(items)
-  return items.length
+  return items
 }
 
 export function updateItem(id: string, patch: Partial<Omit<Item, 'id' | 'createdAt'>>) {

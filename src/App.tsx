@@ -1,86 +1,167 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { toast } from 'sonner'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Toaster } from '@/components/ui/sonner'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 import { AddBar } from './components/AddBar'
-import { CategoryPicker } from './components/CategoryPicker'
-import { Group } from './components/Group'
-import { ItemSheet } from './components/ItemSheet'
+import { ItemEditor } from './components/ItemEditor'
+import { ListBody } from './components/ListBody'
 import { Row } from './components/Row'
-import { Sheet } from './components/Sheet'
-import { UndoToast } from './components/UndoToast'
 import { db, type Item } from './db'
-import { groupItems } from './grouping'
-import { deleteItem, restoreItem, setCategory } from './store'
+import { groupItems, type Grouped } from './grouping'
+import { deleteItem, restoreItem } from './store'
 import { useLive } from './useLive'
+import { useMediaQuery } from './useMediaQuery'
+import { usePersistentState } from './usePersistentState'
+
+type ListId = 'groceries' | 'todos'
+const LIST_IDS: readonly ListId[] = ['groceries', 'todos']
+const TITLES: Record<ListId, string> = { groceries: 'Groceries', todos: 'To-dos' }
+
+/** Desktop layout from Tailwind's `lg` breakpoint up. */
+const DESKTOP_QUERY = '(min-width: 1024px)'
+
+interface LayoutProps {
+  grouped: Grouped
+  counts: Record<ListId, number>
+  renderRow: (item: Item) => ReactNode
+}
+
+function MobileLayout({ grouped, counts, renderRow }: LayoutProps) {
+  const [list, setList] = usePersistentState<ListId>('tab', 'groceries', LIST_IDS)
+  const [pulse, setPulse] = useState<ListId | null>(null)
+
+  useEffect(() => {
+    if (!pulse) return
+    const t = setTimeout(() => setPulse(null), 1200)
+    return () => clearTimeout(t)
+  }, [pulse])
+
+  // Items can land in the other list; flash its count so they don't seem to vanish.
+  const onAdded = (added: Item[]) => {
+    const other: ListId = list === 'groceries' ? 'todos' : 'groceries'
+    if (added.some((i) => (i.type === 'grocery') === (other === 'groceries'))) setPulse(other)
+  }
+
+  return (
+    <Tabs value={list} onValueChange={(v) => setList(v as ListId)} className="mx-auto min-h-dvh max-w-xl px-safe pt-safe">
+      <header className="flex items-baseline justify-between gap-3 pb-3 pt-7">
+        <h1 className="text-[34px] font-semibold leading-tight tracking-tight">{TITLES[list]}</h1>
+        {counts[list] > 0 && (
+          <span className="text-[15px] tabular-nums text-muted-foreground">
+            {counts[list]} {list === 'groceries' ? 'to buy' : 'to do'}
+          </span>
+        )}
+      </header>
+
+      {LIST_IDS.map((id) => (
+        <TabsContent key={id} value={id} className="mt-0 pb-[calc(8.5rem+env(safe-area-inset-bottom))]">
+          <ListBody kind={id} grouped={grouped} renderRow={renderRow} />
+        </TabsContent>
+      ))}
+
+      {/* Bottom bar in thumb reach: list switch above the add field. */}
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/90 backdrop-blur-lg backdrop-saturate-150">
+        <div className="mx-auto max-w-xl space-y-2 px-safe pb-[calc(0.625rem+env(safe-area-inset-bottom))] pt-2.5">
+          <TabsList className="grid h-11 w-full grid-cols-2 p-0.5">
+            {LIST_IDS.map((id) => (
+              <TabsTrigger key={id} value={id} className="h-10 gap-2 text-[15px] data-[state=active]:font-semibold data-[state=active]:shadow-sm dark:data-[state=active]:bg-accent">
+                {TITLES[id]}
+                <span
+                  className={cn(
+                    'inline-block tabular-nums text-muted-foreground',
+                    pulse === id && 'animate-count-bump font-bold text-brand',
+                  )}
+                >
+                  {counts[id]}
+                </span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          <AddBar placeholder={list === 'groceries' ? 'Add milk, eggs, bread…' : 'Add call plumber, pay rent…'} onAdded={onAdded} />
+        </div>
+      </div>
+    </Tabs>
+  )
+}
+
+function DesktopLayout({ grouped, counts, renderRow }: LayoutProps) {
+  // "/" jumps to the add field from anywhere, like search in many desktop apps.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement
+      if (e.key !== '/' || e.metaKey || e.ctrlKey || target.closest('input, textarea, [contenteditable]')) return
+      e.preventDefault()
+      document.getElementById('add-input')?.focus()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  return (
+    <div className="min-h-dvh">
+      <header className="sticky top-0 z-40 border-b bg-background/90 backdrop-blur-lg backdrop-saturate-150">
+        <div className="mx-auto grid max-w-[1320px] grid-cols-[200px_minmax(0,1fr)_200px] items-center gap-6 px-10 py-3.5">
+          <p className="text-[17px] font-semibold tracking-tight">Get It Done</p>
+          <AddBar placeholder="Add items — milk, eggs, call plumber…" className="w-full max-w-2xl justify-self-center" />
+          <span className="justify-self-end text-xs text-muted-foreground">
+            Press <kbd className="rounded border border-input px-1.5 py-px font-sans">/</kbd> to add
+          </span>
+        </div>
+      </header>
+
+      <main className="mx-auto grid max-w-[1320px] grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-14 px-10 pb-20 pt-8">
+        {LIST_IDS.map((id) => (
+          <section key={id} aria-labelledby={`col-${id}`}>
+            <div className="mb-4 flex items-baseline justify-between gap-3 border-b-2 border-foreground pb-3">
+              <h2 id={`col-${id}`} className="text-2xl font-semibold tracking-tight">
+                {TITLES[id]}
+              </h2>
+              <span className="text-sm tabular-nums text-muted-foreground">{counts[id]} open</span>
+            </div>
+            <ListBody kind={id} grouped={grouped} renderRow={renderRow} columns={id === 'groceries'} />
+          </section>
+        ))}
+      </main>
+    </div>
+  )
+}
 
 export default function App() {
   const items = useLive(() => db.items.toArray())
-  const [picking, setPicking] = useState<Item | null>(null)
+  const isDesktop = useMediaQuery(DESKTOP_QUERY)
   const [openId, setOpenId] = useState<string | null>(null)
-  const [deleted, setDeleted] = useState<Item | null>(null)
-  const closePicker = useCallback(() => setPicking(null), [])
   const closeItem = useCallback(() => setOpenId(null), [])
-  const dismissToast = useCallback(() => setDeleted(null), [])
 
   const remove = useCallback((item: Item) => {
     deleteItem(item.id)
-    setDeleted(item)
+    toast(`Deleted “${item.name}”`, {
+      id: `deleted-${item.id}`,
+      action: { label: 'Undo', onClick: () => restoreItem(item.id) },
+    })
   }, [])
 
   const renderRow = (item: Item) => (
-    <Row key={item.id} item={item} onPickCategory={setPicking} onOpen={(i) => setOpenId(i.id)} onDelete={remove} />
+    <Row key={item.id} item={item} dense={isDesktop} onOpen={(i) => setOpenId(i.id)} onDelete={remove} />
   )
 
   // First render before IndexedDB answers: keep the shell, no spinner.
-  const g = groupItems(items ?? [])
-  const openGroceries = g.groceries.reduce((n, s) => n + s.items.length, 0)
+  const grouped = groupItems(items ?? [])
+  const counts: Record<ListId, number> = {
+    groceries: grouped.groceries.reduce((n, s) => n + s.items.length, 0),
+    todos: grouped.todos.length,
+  }
+
+  const Layout = isDesktop ? DesktopLayout : MobileLayout
+  // On phones the toast sits just above the bottom bar.
+  const toastOffset = isDesktop ? 24 : { bottom: 'calc(8.25rem + env(safe-area-inset-bottom))' }
 
   return (
-    <div className="app">
-      <header className="app-header">
-        <h1>Get It Done</h1>
-      </header>
-
-      <main className="lists">
-        <Group id="groceries" title="Groceries" openCount={openGroceries} done={g.groceriesDone} renderRow={renderRow}>
-          {g.groceries.map(({ section, items }) => (
-            <div key={section} className="section">
-              <h3 className="section-title">{section}</h3>
-              <ul className="rows">{items.map(renderRow)}</ul>
-            </div>
-          ))}
-        </Group>
-
-        <Group id="todos" title="To-dos" openCount={g.todos.length} done={g.todosDone} renderRow={renderRow}>
-          <ul className="rows">{g.todos.map(renderRow)}</ul>
-        </Group>
-      </main>
-
-      {deleted && (
-        <UndoToast
-          message={`Deleted “${deleted.name}”`}
-          onUndo={() => {
-            restoreItem(deleted.id)
-            setDeleted(null)
-          }}
-          onDismiss={dismissToast}
-        />
-      )}
-
-      <AddBar />
-
-      {picking && (
-        <Sheet title={picking.name} onClose={closePicker}>
-          <p className="sheet-hint">Pick a category. Get It Done will remember it for “{picking.name}”.</p>
-          <CategoryPicker
-            value={picking}
-            onChange={async (c) => {
-              await setCategory(picking, c)
-              closePicker()
-            }}
-          />
-        </Sheet>
-      )}
-
-      {openId && <ItemSheet id={openId} onClose={closeItem} onDelete={remove} />}
-    </div>
+    <TooltipProvider delayDuration={400}>
+      <Layout grouped={grouped} counts={counts} renderRow={renderRow} />
+      <ItemEditor id={openId} desktop={isDesktop} onClose={closeItem} onDelete={remove} />
+      <Toaster position="bottom-center" duration={5000} offset={toastOffset} mobileOffset={toastOffset} />
+    </TooltipProvider>
   )
 }
