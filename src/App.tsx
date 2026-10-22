@@ -1,3 +1,4 @@
+import { Check } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -28,6 +29,18 @@ interface LayoutProps {
   renderRow: (item: Item) => ReactNode
 }
 
+/** App name with a small version of the app icon (persimmon square, white tick). */
+function AppName({ className }: { className?: string }) {
+  return (
+    <h1 className={cn('flex items-center gap-2.5 text-2xl font-bold tracking-tight', className)}>
+      <span aria-hidden className="grid size-[34px] place-items-center rounded-lg bg-brand text-brand-foreground shadow-sm">
+        <Check className="size-[22px]" strokeWidth={3} />
+      </span>
+      Get It Done
+    </h1>
+  )
+}
+
 function MobileLayout({ grouped, counts, renderRow }: LayoutProps) {
   const [list, setList] = usePersistentState<ListId>('tab', 'groceries', LIST_IDS)
   const [pulse, setPulse] = useState<ListId | null>(null)
@@ -45,21 +58,31 @@ function MobileLayout({ grouped, counts, renderRow }: LayoutProps) {
   }
 
   return (
-    <Tabs value={list} onValueChange={(v) => setList(v as ListId)} className="mx-auto min-h-dvh max-w-xl px-safe pt-safe">
-      <header className="flex items-baseline justify-between gap-3 pb-3 pt-7">
-        <h1 className="text-[34px] font-semibold leading-tight tracking-tight">{TITLES[list]}</h1>
-        {counts[list] > 0 && (
-          <span className="text-[15px] tabular-nums text-muted-foreground">
-            {counts[list]} {list === 'groceries' ? 'to buy' : 'to do'}
-          </span>
-        )}
+    <Tabs value={list} onValueChange={(v) => setList(v as ListId)} className="min-h-dvh">
+      {/* App bar: always visible, clears the notch / status bar. */}
+      <header className="sticky top-0 z-40 border-b bg-background/90 pt-safe backdrop-blur-lg backdrop-saturate-150">
+        <div className="mx-auto flex h-16 max-w-xl items-center px-safe">
+          <AppName />
+        </div>
       </header>
 
-      {LIST_IDS.map((id) => (
-        <TabsContent key={id} value={id} className="mt-0 pb-[calc(8.5rem+env(safe-area-inset-bottom))]">
-          <ListBody kind={id} grouped={grouped} renderRow={renderRow} />
-        </TabsContent>
-      ))}
+      <div className="mx-auto max-w-xl px-safe">
+        {/* List heading; sits under the app name and scrolls with the list. */}
+        <div className="flex items-baseline justify-between gap-3 pb-2 pt-5">
+          <h2 className="text-xl font-semibold tracking-tight">{TITLES[list]}</h2>
+          {counts[list] > 0 && (
+            <span className="text-[15px] tabular-nums text-muted-foreground">
+              {counts[list]} {list === 'groceries' ? 'to buy' : 'to do'}
+            </span>
+          )}
+        </div>
+
+        {LIST_IDS.map((id) => (
+          <TabsContent key={id} value={id} className="mt-0 pb-[calc(8.5rem+env(safe-area-inset-bottom))]">
+            <ListBody kind={id} grouped={grouped} renderRow={renderRow} />
+          </TabsContent>
+        ))}
+      </div>
 
       {/* Bottom bar in thumb reach: list switch above the add field. */}
       <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/90 backdrop-blur-lg backdrop-saturate-150">
@@ -102,8 +125,8 @@ function DesktopLayout({ grouped, counts, renderRow }: LayoutProps) {
   return (
     <div className="min-h-dvh">
       <header className="sticky top-0 z-40 border-b bg-background/90 backdrop-blur-lg backdrop-saturate-150">
-        <div className="mx-auto grid max-w-[1320px] grid-cols-[200px_minmax(0,1fr)_200px] items-center gap-6 px-10 py-3.5">
-          <p className="text-[17px] font-semibold tracking-tight">Get It Done</p>
+        <div className="mx-auto grid max-w-[1320px] grid-cols-[220px_minmax(0,1fr)_220px] items-center gap-6 px-10 py-4">
+          <AppName />
           <AddBar placeholder="Add items — milk, eggs, call plumber…" className="w-full max-w-2xl justify-self-center" />
           <span className="justify-self-end text-xs text-muted-foreground">
             Press <kbd className="rounded border border-input px-1.5 py-px font-sans">/</kbd> to add
