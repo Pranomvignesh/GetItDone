@@ -5,6 +5,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import type { Item } from '../db'
 import { addFromInput } from '../store'
+import { NO_AUTOFILL } from '../noAutofill'
 
 interface Props {
   placeholder: string
@@ -34,7 +35,7 @@ export function AddBar({ placeholder, onAdded, className }: Props) {
   }
 
   return (
-    <form className={cn('flex items-end gap-2', className)} onSubmit={submit}>
+    <form className={cn('flex items-end gap-2', className)} onSubmit={submit} autoComplete="off">
       <Textarea
         ref={ref}
         id="add-input"
@@ -45,7 +46,7 @@ export function AddBar({ placeholder, onAdded, className }: Props) {
         placeholder={placeholder}
         aria-label="Add items"
         enterKeyHint="done"
-        autoComplete="off"
+        {...NO_AUTOFILL}
         // 16px stops iOS Safari from zooming into the field.
         className="max-h-32 min-h-11 flex-1 resize-none bg-card py-[11px] text-base leading-5 shadow-none [field-sizing:content] md:text-[15px]"
       />

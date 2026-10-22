@@ -9,6 +9,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { CATEGORY_CHOICES, categoryFromKey, categoryKey } from '../categories'
 import { db, type Item } from '../db'
 import { setCategory, updateItem } from '../store'
+import { NO_AUTOFILL } from '../noAutofill'
 import { useLive } from '../useLive'
 
 interface Props {
@@ -50,6 +51,7 @@ export function ItemEditor({ id, desktop, onClose, onDelete }: Props) {
           onBlur={saveName}
           onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
           enterKeyHint="done"
+          {...NO_AUTOFILL}
           className="h-11 bg-card text-base shadow-none md:text-sm"
         />
       </div>
