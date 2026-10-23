@@ -1,9 +1,9 @@
-import { PencilLine, Trash2 } from 'lucide-react'
+import { Bell, PencilLine, Trash2 } from 'lucide-react'
 import { useRef, useState, type PointerEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { isOverdue, shortLabel } from '../dates'
 import type { Item } from '../db'
 import { toggleDone } from '../store'
 
@@ -61,6 +61,8 @@ export function Row({ item, onOpen, onDelete, dense = false }: Props) {
   }
 
   const armed = Math.abs(dx) >= SWIPE_THRESHOLD
+  const now = Date.now()
+  const overdue = isOverdue(item.deadlineAt, item.doneAt, now)
   const opening = dx > 0
 
   return (
@@ -109,14 +111,14 @@ export function Row({ item, onOpen, onDelete, dense = false }: Props) {
           className={cn(
             // 22px box with a 44px invisible hit area around it.
             'relative size-[22px] rounded-[5px] border-[1.5px] border-muted-foreground/70 shadow-none',
-            'after:absolute after:-inset-[11px] after:content-[""]',
+            'after:absolute after:inset-[-11px] after:content-[""]',
             'hover:border-foreground',
             'data-[state=checked]:border-brand data-[state=checked]:bg-brand data-[state=checked]:text-brand-foreground',
           )}
         />
         <button
           className={cn(
-            'min-h-11 min-w-0 flex-1 py-2.5 text-left leading-snug [overflow-wrap:anywhere]',
+            'min-h-11 min-w-0 flex-1 py-2.5 text-left leading-snug wrap-anywhere',
             dense ? 'text-[15px]' : 'text-[17px]',
             done && 'text-muted-foreground line-through decoration-1',
           )}
@@ -125,19 +127,24 @@ export function Row({ item, onOpen, onDelete, dense = false }: Props) {
           {item.name}
         </button>
 
+        {(item.deadlineAt !== null || item.remindAt !== null) && (
+          <span className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums text-muted-foreground">
+            {item.remindAt !== null && !done && <Bell className="size-3.5" aria-label={`Reminder ${shortLabel(item.remindAt, now)}`} />}
+            {item.deadlineAt !== null && (
+              <span className={cn('rounded px-1.5 py-0.5', overdue ? 'bg-destructive/10 font-semibold text-destructive' : 'bg-muted')}>
+                {overdue && <span className="sr-only">Overdue: </span>}
+                {shortLabel(item.deadlineAt, now)}
+              </span>
+            )}
+          </span>
+        )}
+
         {/* Hover actions: only on devices with a real pointer (touch uses swipes). */}
         <div className="hidden gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:flex">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" onClick={() => onOpen(item)} aria-label={`Edit ${item.name}`}>
+          <Button title="Edit" variant="ghost" size="icon" className="size-8 text-muted-foreground" onClick={() => onOpen(item)} aria-label={`Edit ${item.name}`}>
                 <PencilLine className="size-4" />
               </Button>
-            </TooltipTrigger>
-            <TooltipContent>Edit</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
+          <Button title="Delete"
                 variant="ghost"
                 size="icon"
                 className="size-8 text-muted-foreground hover:text-destructive"
@@ -146,9 +153,6 @@ export function Row({ item, onOpen, onDelete, dense = false }: Props) {
               >
                 <Trash2 className="size-4" />
               </Button>
-            </TooltipTrigger>
-            <TooltipContent>Delete</TooltipContent>
-          </Tooltip>
         </div>
       </div>
     </li>
