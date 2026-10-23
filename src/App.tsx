@@ -1,20 +1,30 @@
-import { Check } from 'lucide-react'
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Settings } from 'lucide-react'
+import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Toaster } from '@/components/ui/sonner'
-import { TooltipProvider } from '@/components/ui/tooltip'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { AddBar } from './components/AddBar'
-import { ItemEditor } from './components/ItemEditor'
+import { AppName } from './components/AppName'
 import { ListBody } from './components/ListBody'
+import { LockScreen } from './components/LockScreen'
 import { Row } from './components/Row'
+import { SyncDot } from './components/SyncDot'
+import { ThemeToggle } from './components/ThemeToggle'
+import { UpdatePrompt } from './components/UpdatePrompt'
 import { db, type Item } from './db'
 import { groupItems, type Grouped } from './grouping'
 import { deleteItem, restoreItem } from './store'
 import { useLive } from './useLive'
+import { useTheme, type Theme } from './theme'
 import { useMediaQuery } from './useMediaQuery'
 import { usePersistentState } from './usePersistentState'
+import { useVault } from './sync/hooks'
+
+// Loaded on first use, keeping them out of the initial download.
+const ItemEditor = lazy(() => import('./components/ItemEditor').then((m) => ({ default: m.ItemEditor })))
+const SettingsPanel = lazy(() => import('./components/SettingsPanel').then((m) => ({ default: m.SettingsPanel })))
 
 type ListId = 'groceries' | 'todos'
 const LIST_IDS: readonly ListId[] = ['groceries', 'todos']
@@ -27,21 +37,23 @@ interface LayoutProps {
   grouped: Grouped
   counts: Record<ListId, number>
   renderRow: (item: Item) => ReactNode
+  /** Sync dot, theme toggle and settings, shown in the app bar. */
+  actions: ReactNode
 }
 
-/** App name with a small version of the app icon (persimmon square, white tick). */
-function AppName({ className }: { className?: string }) {
+function HeaderActions({ theme, onToggleTheme, onOpenSettings }: { theme: Theme; onToggleTheme: () => void; onOpenSettings: () => void }) {
   return (
-    <h1 className={cn('flex items-center gap-2.5 text-2xl font-bold tracking-tight', className)}>
-      <span aria-hidden className="grid size-[34px] place-items-center rounded-lg bg-brand text-brand-foreground shadow-sm">
-        <Check className="size-[22px]" strokeWidth={3} />
-      </span>
-      Get It Done
-    </h1>
+    <div className="flex items-center gap-0.5">
+      <SyncDot onClick={onOpenSettings} />
+      <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+      <Button variant="ghost" size="icon" className="size-10 text-muted-foreground hover:text-foreground" onClick={onOpenSettings} aria-label="Settings">
+        <Settings className="size-5" />
+      </Button>
+    </div>
   )
 }
 
-function MobileLayout({ grouped, counts, renderRow }: LayoutProps) {
+function MobileLayout({ grouped, counts, renderRow, actions }: LayoutProps) {
   const [list, setList] = usePersistentState<ListId>('tab', 'groceries', LIST_IDS)
   const [pulse, setPulse] = useState<ListId | null>(null)
 
@@ -61,8 +73,9 @@ function MobileLayout({ grouped, counts, renderRow }: LayoutProps) {
     <Tabs value={list} onValueChange={(v) => setList(v as ListId)} className="min-h-dvh">
       {/* App bar: always visible, clears the notch / status bar. */}
       <header className="sticky top-0 z-40 border-b bg-background/90 pt-safe backdrop-blur-lg backdrop-saturate-150">
-        <div className="mx-auto flex h-16 max-w-xl items-center px-safe">
+        <div className="mx-auto flex h-16 max-w-xl items-center justify-between px-safe">
           <AppName />
+          {actions}
         </div>
       </header>
 
@@ -89,7 +102,7 @@ function MobileLayout({ grouped, counts, renderRow }: LayoutProps) {
         <div className="mx-auto max-w-xl space-y-2 px-safe pb-[calc(0.625rem+env(safe-area-inset-bottom))] pt-2.5">
           <TabsList className="grid h-11 w-full grid-cols-2 p-0.5">
             {LIST_IDS.map((id) => (
-              <TabsTrigger key={id} value={id} className="h-10 gap-2 text-[15px] data-[state=active]:font-semibold data-[state=active]:shadow-sm dark:data-[state=active]:bg-accent">
+              <TabsTrigger key={id} value={id} className="h-10 gap-2 text-[15px] data-[state=active]:font-semibold data-[state=active]:shadow-xs dark:data-[state=active]:bg-accent">
                 {TITLES[id]}
                 <span
                   className={cn(
@@ -109,7 +122,7 @@ function MobileLayout({ grouped, counts, renderRow }: LayoutProps) {
   )
 }
 
-function DesktopLayout({ grouped, counts, renderRow }: LayoutProps) {
+function DesktopLayout({ grouped, counts, renderRow, actions }: LayoutProps) {
   // "/" jumps to the add field from anywhere, like search in many desktop apps.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -125,12 +138,15 @@ function DesktopLayout({ grouped, counts, renderRow }: LayoutProps) {
   return (
     <div className="min-h-dvh">
       <header className="sticky top-0 z-40 border-b bg-background/90 backdrop-blur-lg backdrop-saturate-150">
-        <div className="mx-auto grid max-w-[1320px] grid-cols-[220px_minmax(0,1fr)_220px] items-center gap-6 px-10 py-4">
+        <div className="mx-auto grid max-w-[1320px] grid-cols-[240px_minmax(0,1fr)_240px] items-center gap-6 px-10 py-4">
           <AppName />
           <AddBar placeholder="Add items — milk, eggs, call plumber…" className="w-full max-w-2xl justify-self-center" />
-          <span className="justify-self-end text-xs text-muted-foreground">
-            Press <kbd className="rounded border border-input px-1.5 py-px font-sans">/</kbd> to add
-          </span>
+          <div className="flex items-center gap-3 justify-self-end">
+            <span className="text-xs text-muted-foreground">
+              Press <kbd className="rounded border border-input px-1.5 py-px font-sans">/</kbd> to add
+            </span>
+            {actions}
+          </div>
         </div>
       </header>
 
@@ -152,9 +168,12 @@ function DesktopLayout({ grouped, counts, renderRow }: LayoutProps) {
 }
 
 export default function App() {
+  const vault = useVault()
   const items = useLive(() => db.items.toArray())
   const isDesktop = useMediaQuery(DESKTOP_QUERY)
+  const theme = useTheme()
   const [openId, setOpenId] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const closeItem = useCallback(() => setOpenId(null), [])
 
   const remove = useCallback((item: Item) => {
@@ -180,11 +199,30 @@ export default function App() {
   // On phones the toast sits just above the bottom bar.
   const toastOffset = isDesktop ? 24 : { bottom: 'calc(8.25rem + env(safe-area-inset-bottom))' }
 
+  const toaster = <Toaster theme={theme.theme} position="bottom-center" duration={5000} offset={toastOffset} mobileOffset={toastOffset} />
+
+  // The service worker and update prompt run on every screen, including the lock screen.
+  if (vault.state !== 'unlocked') {
+    return (
+      <>
+        {vault.state === 'locked' && <LockScreen onUnlock={vault.unlock} />}
+        <UpdatePrompt />
+        {toaster}
+      </>
+    )
+  }
+
+  const actions = <HeaderActions theme={theme.theme} onToggleTheme={theme.toggle} onOpenSettings={() => setSettingsOpen(true)} />
+
   return (
-    <TooltipProvider delayDuration={400}>
-      <Layout grouped={grouped} counts={counts} renderRow={renderRow} />
-      <ItemEditor id={openId} desktop={isDesktop} onClose={closeItem} onDelete={remove} />
-      <Toaster position="bottom-center" duration={5000} offset={toastOffset} mobileOffset={toastOffset} />
-    </TooltipProvider>
+    <>
+      <Layout grouped={grouped} counts={counts} renderRow={renderRow} actions={actions} />
+      <Suspense>
+        {openId && <ItemEditor id={openId} desktop={isDesktop} onClose={closeItem} onDelete={remove} />}
+        {settingsOpen && <SettingsPanel open desktop={isDesktop} onOpenChange={setSettingsOpen} onLocked={vault.lock} />}
+      </Suspense>
+      <UpdatePrompt />
+      {toaster}
+    </>
   )
 }

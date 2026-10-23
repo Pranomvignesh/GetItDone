@@ -3,3 +3,14 @@ dist
 .DS_Store
 *.local
 *.tsbuildinfo
+
+.data
+.env*.local
+.env
+
+# Mac widget config holds the vault key
+widget/getitdone.widget/config.json
+
+# Playwright
+test-results
+playwright-report
