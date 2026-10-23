@@ -48,7 +48,7 @@ export function AddBar({ placeholder, onAdded, className }: Props) {
         enterKeyHint="done"
         {...NO_AUTOFILL}
         // 16px stops iOS Safari from zooming into the field.
-        className="max-h-32 min-h-11 flex-1 resize-none bg-card py-[11px] text-base leading-5 shadow-none [field-sizing:content] md:text-[15px]"
+        className="max-h-32 min-h-11 flex-1 resize-none bg-card py-[11px] text-base leading-5 shadow-none field-sizing-content md:text-[15px]"
       />
       <Button
         type="submit"

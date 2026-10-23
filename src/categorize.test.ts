@@ -28,6 +28,13 @@ describe('categorize', () => {
     ['toilet paper', 'Household'],
     ['toothpaste', 'Personal care'],
     ['sparkling water', 'Snacks & drinks'],
+    ['besan', 'Pantry'],
+    ['toor dal', 'Pantry'],
+    ['ghee', 'Dairy & eggs'],
+    ['squash', 'Produce'],
+    ['dish liquid', 'Household'],
+    ['coconut water', 'Snacks & drinks'],
+    ['paracetamol', 'Personal care'],
   ])('%s → %s', (text, expected) => {
     expect(key(text)).toBe(expected)
   })
