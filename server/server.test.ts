@@ -6,7 +6,7 @@ import { MAX_FAILURES } from './auth'
 import { pgliteDb, setDbForTests, type Db } from './db'
 import { setPushSenderForTests, type PushPayload } from './push'
 import { setSchedulerForTests } from './scheduler'
-import { cleanupCron, notifyJob, pull, push, remindJob } from './sync'
+import { cleanupCron, notifyJob, pull, push, remindJob, routineJob } from './sync'
 import { handle } from './http'
 
 const DAY = 86_400_000
@@ -246,5 +246,50 @@ describe('cleanup cron', () => {
     await sendItems([item({ doneAt: now - 2 * DAY, updatedAt: now - 2 * DAY })])
     const res = await handle(cleanupCron)(new Request('http://test/api/cron/cleanup', { headers: { authorization: 'Bearer cron-secret' } }))
     expect(await res.json()).toMatchObject({ expired: 1 })
+  })
+})
+
+describe('routines', () => {
+  const routine = (partial: Partial<{ id: string; nextAt: number | null; deletedAt: number | null; updatedAt: number }> = {}) => ({
+    id: crypto.randomUUID(),
+    ciphertext: 'ct',
+    nextAt: Date.now() + 3_600_000,
+    deletedAt: null,
+    updatedAt: Date.now(),
+    ...partial,
+  })
+  const sendRoutines = (routines: unknown[], deviceId = 'phone') => POST(req('POST', '/api/sync', { deviceId, items: [], settings: [], routines }))
+
+  it('stores routines, last write wins, and returns them on pull', async () => {
+    const r = routine({ updatedAt: 1000 })
+    await sendRoutines([r])
+    await sendRoutines([{ ...r, ciphertext: 'older', updatedAt: 500 }])
+    const { routines } = await pullAll()
+    expect(routines).toEqual([r])
+  })
+
+  it('schedules a push at the next occurrence, reschedules on change and cancels on delete', async () => {
+    const r = routine()
+    await sendRoutines([r])
+    expect(jobs.filter((j) => j.path === '/api/jobs/routine')).toMatchObject([{ body: { id: r.id, at: r.nextAt }, at: r.nextAt }])
+
+    const later = r.nextAt! + 86_400_000
+    await sendRoutines([{ ...r, nextAt: later, updatedAt: r.updatedAt + 1 }])
+    expect(cancelled).toHaveLength(1)
+    expect(jobs.filter((j) => j.path === '/api/jobs/routine').at(-1)).toMatchObject({ at: later })
+
+    await sendRoutines([{ ...r, nextAt: later, deletedAt: Date.now(), updatedAt: r.updatedAt + 2 }])
+    expect(cancelled).toHaveLength(2)
+    expect((await pullAll()).routines[0]).toMatchObject({ ciphertext: '', nextAt: null })
+  })
+
+  it('pushes when a routine comes up, only if it still does', async () => {
+    await db.query("INSERT INTO push_subscriptions (device_id, endpoint, keys, created_at, last_seen_at) VALUES ('phone', 'https://push/1', '{\"p256dh\":\"a\",\"auth\":\"b\"}', 0, 0)")
+    const r = routine()
+    await sendRoutines([r])
+    const run = (body: unknown) => handle(routineJob)(req('POST', '/api/jobs/routine', body))
+    expect(await (await run({ id: r.id, at: r.nextAt! - 1 })).json()).toEqual({ skipped: true })
+    expect(await (await run({ id: r.id, at: r.nextAt })).json()).toEqual({ sent: 1 })
+    expect(pushes.at(-1)?.payload).toEqual({ t: 'routine', id: r.id })
   })
 })

@@ -1,7 +1,7 @@
 import type { Db } from './db.js'
 
 /** What the service worker receives. Item text is never sent: the device decrypts it locally. */
-export type PushPayload = { t: 'changes'; ids: string[]; more: number } | { t: 'reminder'; id: string }
+export type PushPayload = { t: 'changes'; ids: string[]; more: number } | { t: 'reminder'; id: string } | { t: 'routine'; id: string }
 
 export interface PushSender {
   send(subscription: { endpoint: string; keys: { p256dh: string; auth: string } }, payload: PushPayload): Promise<number>

@@ -66,6 +66,24 @@ const MIGRATIONS: { id: number; sql: string }[] = [
       );
     `,
   },
+  {
+    id: 2,
+    sql: `
+      -- Routines (recurring items). The schedule is encrypted; only the next
+      -- occurrence time is plain, so the server can push when it's due.
+      CREATE TABLE IF NOT EXISTS routines (
+        id uuid PRIMARY KEY,
+        ciphertext text NOT NULL,
+        next_at bigint,
+        deleted_at bigint,
+        updated_at bigint NOT NULL,
+        updated_by text NOT NULL,
+        job_msg_id text,
+        rev bigint NOT NULL DEFAULT nextval('rev_seq')
+      );
+      CREATE INDEX IF NOT EXISTS routines_rev ON routines (rev);
+    `,
+  },
 ]
 
 export async function migrate(db: Db) {

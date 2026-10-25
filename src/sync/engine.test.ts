@@ -167,3 +167,95 @@ describe('rotating the vault', () => {
     expect(mac.engine.getSyncStatus().status).toBe('unauthorized')
   })
 })
+
+describe('routines', () => {
+  const DAY = 86_400_000
+  const today9am = () => {
+    const d = new Date()
+    d.setHours(9, 0, 0, 0)
+    return d.getTime()
+  }
+
+  /** Adds a daily 9am routine on the phone, created 3 days ago so occurrences are due. */
+  async function dailyRoutine() {
+    const { routines } = await phone.store.addFromInput('water plants every day at 9am')
+    await phone.db.routines.update(routines[0].id, { createdAt: Date.now() - 3 * DAY, schedule: { ...routines[0].schedule, start: Date.now() - 3 * DAY } })
+    return routines[0].id
+  }
+
+  it('creates only the latest occurrence, once, even when both devices create it', async () => {
+    const id = await dailyRoutine()
+    await phone.engine.syncNow()
+    await mac.engine.syncNow()
+
+    const onPhone = (await phone.db.items.toArray()).filter((i) => i.routineId === id)
+    expect(onPhone).toHaveLength(1) // not a backlog of 3 days
+    expect(onPhone[0]).toMatchObject({ name: 'water plants', deadlineAt: today9am(), type: 'todo' })
+
+    const onMac = (await mac.db.items.toArray()).filter((i) => i.routineId === id)
+    expect(onMac.map((i) => i.id)).toEqual([onPhone[0].id])
+    expect((await mac.db.routines.get(id))?.nextAt).toBe(today9am() > Date.now() ? today9am() : today9am() + DAY)
+  })
+
+  it('makes the same to-do on two devices that create it before syncing', async () => {
+    const id = await dailyRoutine()
+    await phone.engine.syncNow()
+    await mac.engine.syncNow()
+    // Both forget the occurrence was made, then create it independently.
+    for (const device of [phone, mac]) {
+      await device.db.items.filter((i) => i.routineId === id).delete()
+      await device.db.routines.update(id, { lastGeneratedFor: null })
+    }
+    await phone.engine.syncNow()
+    await mac.engine.syncNow()
+    await phone.engine.syncNow()
+    expect((await phone.db.items.toArray()).filter((i) => i.routineId === id && !i.deletedAt)).toHaveLength(1)
+    expect((await mac.db.items.toArray()).filter((i) => i.routineId === id && !i.deletedAt)).toHaveLength(1)
+  })
+
+  it('never brings back an occurrence that was deleted', async () => {
+    const id = await dailyRoutine()
+    await phone.engine.syncNow()
+    await mac.engine.syncNow()
+    const [item] = (await phone.db.items.toArray()).filter((i) => i.routineId === id)
+    await phone.store.deleteItem(item.id)
+    await phone.engine.syncNow()
+    // A device with a stale routine re-creates the occurrence locally; the server's delete still wins.
+    await mac.db.items.delete(item.id)
+    await mac.db.routines.update(id, { lastGeneratedFor: null })
+    await mac.engine.syncNow()
+    await phone.engine.syncNow()
+    expect((await phone.db.items.get(item.id))?.deletedAt).not.toBeNull()
+  })
+
+  it('pausing stops occurrences and resuming does not backfill', async () => {
+    const id = await dailyRoutine()
+    await phone.store.updateRoutine(id, { paused: true })
+    await phone.engine.syncNow()
+    expect((await phone.db.items.toArray()).filter((i) => i.routineId === id)).toHaveLength(0)
+    expect((await phone.db.routines.get(id))?.nextAt).toBeNull()
+
+    await phone.store.updateRoutine(id, { paused: false })
+    await phone.engine.syncNow()
+    const made = (await phone.db.items.toArray()).filter((i) => i.routineId === id)
+    // Only today's occurrence if 9am is still ahead; nothing from the paused days.
+    expect(made.length).toBe(today9am() > Date.now() ? 1 : 0)
+  })
+
+  it('syncs routine edits and deletes', async () => {
+    const { routines } = await phone.store.addFromInput('bins every thursday 8pm')
+    await phone.engine.syncNow()
+    await mac.engine.syncNow()
+    expect(await mac.db.routines.get(routines[0].id)).toMatchObject({ name: 'bins', paused: false })
+
+    await mac.store.updateRoutine(routines[0].id, { name: 'recycling bins' })
+    await mac.engine.syncNow()
+    await phone.engine.syncNow()
+    expect((await phone.db.routines.get(routines[0].id))?.name).toBe('recycling bins')
+
+    await phone.store.deleteRoutine(routines[0].id)
+    await phone.engine.syncNow()
+    await mac.engine.syncNow()
+    expect(await mac.db.routines.get(routines[0].id)).toBeUndefined()
+  })
+})

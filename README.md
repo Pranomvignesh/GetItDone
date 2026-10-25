@@ -10,6 +10,9 @@ A local-first PWA: everything is saved on the device first and works offline. De
 - **Two layouts.** Phones get one list at a time with a bottom bar and swipe gestures; desktop shows both lists side by side with hover actions and a `/` shortcut to add.
 - **Offline first.** Installs to the Home Screen or Dock; opens and edits with no network, then syncs.
 - **Sync** between devices with last-write-wins per item and a status dot (Synced, Syncing, Offline).
+- **Natural language in the add bar.** `Wash shoe tomorrow urgent, remind at 6pm`, `10pm shoe wash` or `pay rent on 10/30` set the deadline, reminder and priority (parsed on the device with plain rules, no AI). A preview shows what was understood before you add.
+- **Routines.** `Clean dishwasher every month on the 1st sunday at 10am` creates a routine (own tab on phones, own column on desktop); each occurrence appears as a to-do on its day.
+- **Edit from the add bar.** Type `/edit` (or ⌘E), pick an item from the autocomplete, change its text and press Enter.
 - **Deadlines and reminders** with presets; reminders arrive as push notifications with Mark done and Snooze (actions on Mac browsers).
 - **Background updates** on iPhone: changes from another device arrive as one batched notification ("Groceries: milk, eggs added") and the data is current next time you open the app.
 - **Private without accounts.** A 256-bit vault key, shared between your devices by link or QR code.

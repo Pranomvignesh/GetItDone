@@ -1,12 +1,14 @@
 import {
   DEFAULT_TTL_DAYS,
   MAX_ITEMS_PER_PUSH,
+  MAX_ROUTINES_PER_PUSH,
   PULL_PAGE_SIZE,
   TOMBSTONE_DAYS,
   type PullResponse,
   type PushRequest,
   type PushResponse,
   type WireItem,
+  type WireRoutine,
   type WireSetting,
 } from '../src/sync/protocol.js'
 import { requireCron, requireDevice } from './auth.js'
@@ -69,6 +71,32 @@ function validItem(raw: unknown, now: number): WireItem {
   }
 }
 
+function validRoutine(raw: unknown, now: number): WireRoutine {
+  const r = raw as Partial<WireRoutine>
+  if (typeof r?.id !== 'string' || !UUID.test(r.id)) throw new HttpError(400, 'Bad routine id')
+  if (typeof r.ciphertext !== 'string' || r.ciphertext.length > 8192) throw new HttpError(400, 'Bad ciphertext')
+  const updatedAt = optTime(r.updatedAt, 'updatedAt')
+  if (updatedAt === null || updatedAt > now + MAX_FUTURE_MS) throw new HttpError(400, 'Bad updatedAt')
+  const deletedAt = optTime(r.deletedAt, 'deletedAt')
+  return {
+    id: r.id.toLowerCase(),
+    ciphertext: deletedAt ? '' : r.ciphertext,
+    nextAt: deletedAt ? null : optTime(r.nextAt, 'nextAt'),
+    deletedAt,
+    updatedAt,
+  }
+}
+
+function toWireRoutine(r: Row): WireRoutine {
+  return {
+    id: String(r.id),
+    ciphertext: String(r.ciphertext),
+    nextAt: num(r.next_at),
+    deletedAt: num(r.deleted_at),
+    updatedAt: Number(r.updated_at),
+  }
+}
+
 function validSetting(raw: unknown, now: number): WireSetting {
   const r = raw as Partial<WireSetting>
   if (typeof r?.key !== 'string' || !/^[a-zA-Z0-9_.-]{1,64}$/.test(r.key)) throw new HttpError(400, 'Bad setting key')
@@ -92,9 +120,11 @@ export async function pull(request: Request): Promise<Response> {
     [since, PULL_PAGE_SIZE],
   )
   const settings = await db.query('SELECT key, ciphertext, updated_at, rev FROM settings WHERE rev > $1', [since])
-  const revs = [...rows, ...settings].map((r) => Number(r.rev))
+  const routines = await db.query('SELECT id, ciphertext, next_at, deleted_at, updated_at, rev FROM routines WHERE rev > $1', [since])
+  const revs = [...rows, ...settings, ...routines].map((r) => Number(r.rev))
   const body: PullResponse = {
     items: rows.map(toWireItem),
+    routines: routines.map(toWireRoutine),
     settings: settings.map((r) => ({ key: String(r.key), ciphertext: String(r.ciphertext), updatedAt: Number(r.updated_at) })),
     // With a full page of items, settings beyond the last item rev are fetched next page.
     cursor: rows.length === PULL_PAGE_SIZE ? Number(rows[rows.length - 1].rev) : Math.max(since, ...revs),
@@ -116,9 +146,13 @@ export async function push(request: Request): Promise<Response> {
   if (!deviceId) throw new HttpError(400, 'Missing deviceId')
   const items = Array.isArray(body.items) ? body.items : []
   const settings = Array.isArray(body.settings) ? body.settings : []
-  if (items.length > MAX_ITEMS_PER_PUSH || settings.length > 50) throw new HttpError(413, 'Too many changes in one request')
+  const routines = Array.isArray(body.routines) ? body.routines : []
+  if (items.length > MAX_ITEMS_PER_PUSH || settings.length > 50 || routines.length > MAX_ROUTINES_PER_PUSH) {
+    throw new HttpError(413, 'Too many changes in one request')
+  }
   const validItems = items.map((i) => validItem(i, now))
   const validSettings = settings.map((s) => validSetting(s, now))
+  const validRoutines = routines.map((r) => validRoutine(r, now))
 
   const accepted: string[] = []
   for (const item of validItems) {
@@ -149,6 +183,21 @@ export async function push(request: Request): Promise<Response> {
     )
   }
 
+  for (const r of validRoutines) {
+    const [prev] = await db.query('SELECT next_at, job_msg_id FROM routines WHERE id = $1', [r.id])
+    const won = await db.query(
+      `INSERT INTO routines (id, ciphertext, next_at, deleted_at, updated_at, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (id) DO UPDATE SET
+         ciphertext = EXCLUDED.ciphertext, next_at = EXCLUDED.next_at, deleted_at = EXCLUDED.deleted_at,
+         updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by, rev = nextval('rev_seq')
+       WHERE routines.updated_at < EXCLUDED.updated_at
+       RETURNING id`,
+      [r.id, r.ciphertext, r.nextAt, r.deletedAt, r.updatedAt, deviceId],
+    )
+    if (won.length > 0) await syncRoutineJob(db, r, prev, now)
+  }
+
   if (accepted.length > 0) await queueNotify(db, accepted, deviceId, now)
   await db.query('UPDATE push_subscriptions SET last_seen_at = $1 WHERE device_id = $2', [now, deviceId])
 
@@ -166,6 +215,18 @@ async function syncReminder(db: Db, item: WireItem, prev: Row | undefined, now: 
   if (prevMsg) await scheduler.cancel(prevMsg)
   const msgId = wanted ? await scheduler.schedule('/api/jobs/remind', { id: item.id, at: wanted }, wanted) : null
   await db.query('UPDATE items SET reminder_msg_id = $1 WHERE id = $2', [msgId, item.id])
+}
+
+/** Keeps the push scheduled for a routine's next occurrence in step with it; pausing or deleting cancels it. */
+async function syncRoutineJob(db: Db, r: WireRoutine, prev: Row | undefined, now: number) {
+  const wanted = r.nextAt && r.nextAt > now && !r.deletedAt ? r.nextAt : null
+  const prevAt = num(prev?.next_at)
+  const prevMsg = (prev?.job_msg_id as string | null) ?? null
+  if (prevMsg && wanted === prevAt) return
+  const scheduler = getScheduler()
+  if (prevMsg) await scheduler.cancel(prevMsg)
+  const msgId = wanted ? await scheduler.schedule('/api/jobs/routine', { id: r.id, at: wanted }, wanted) : null
+  await db.query('UPDATE routines SET job_msg_id = $1 WHERE id = $2', [msgId, r.id])
 }
 
 /** Records changes and makes sure one batched "list updated" push is scheduled (FR5). */
@@ -196,6 +257,22 @@ export async function remindJob(request: Request): Promise<Response> {
   if (!item || item.done_at || item.deleted_at || num(item.remind_at) !== at) return json({ skipped: true })
   await db.query('UPDATE items SET reminder_msg_id = NULL WHERE id = $1', [id])
   const sent = await pushToDevices(db, () => ({ t: 'reminder', id }))
+  return json({ sent })
+}
+
+/**
+ * QStash calls this at a routine's next occurrence. Devices create the to-do
+ * (the server can't read the routine); the push wakes them to do it.
+ */
+export async function routineJob(request: Request): Promise<Response> {
+  const text = await readText(request)
+  await verifyJob(request, text)
+  const { id, at } = JSON.parse(text) as { id: string; at: number }
+  const db = await getDb()
+  const [routine] = await db.query('SELECT next_at, deleted_at FROM routines WHERE id = $1', [id])
+  if (!routine || routine.deleted_at || num(routine.next_at) !== at) return json({ skipped: true })
+  await db.query('UPDATE routines SET job_msg_id = NULL WHERE id = $1', [id])
+  const sent = await pushToDevices(db, () => ({ t: 'routine', id }))
   return json({ sent })
 }
 
@@ -232,6 +309,7 @@ export async function cleanupCron(request: Request): Promise<Response> {
   const purged = await db.query('DELETE FROM items WHERE deleted_at IS NOT NULL AND deleted_at < $1 RETURNING id', [
     now - TOMBSTONE_DAYS * DAY,
   ])
+  await db.query('DELETE FROM routines WHERE deleted_at IS NOT NULL AND deleted_at < $1', [now - TOMBSTONE_DAYS * DAY])
   await db.query('DELETE FROM auth_failures WHERE window_start < $1', [now - DAY])
   await db.query('DELETE FROM notify_queue WHERE created_at < $1', [now - DAY])
   return json({ expired: expired.length, purged: purged.length })

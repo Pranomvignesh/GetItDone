@@ -4,12 +4,14 @@ import { NavigationRoute, registerRoute } from 'workbox-routing'
 import { SNOOZE_MS, shortLabel } from './dates'
 import { db } from './db'
 import { describeChanges, type ChangedItem } from './push/message'
+import { describeSchedule } from './routine'
+import { occurrenceId } from './routineGen'
 import { syncNow, syncedNow } from './sync/engine'
 import { updateItem } from './store'
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: (string | { url: string; revision: string | null })[] }
 
-type PushPayload = { t: 'changes'; ids: string[]; more: number } | { t: 'reminder'; id: string }
+type PushPayload = { t: 'changes'; ids: string[]; more: number } | { t: 'reminder'; id: string } | { t: 'routine'; id: string }
 
 // ---------- Offline app shell ----------
 
@@ -53,6 +55,26 @@ async function handlePush(payload: PushPayload | null) {
       badge: '/pwa-64x64.png',
       data: { id: item.id },
       // Shown where supported (Mac browsers); iOS ignores actions and opens the app on tap.
+      actions: [
+        { action: 'done', title: 'Mark done' },
+        { action: 'snooze', title: 'Snooze 1 hour' },
+      ],
+    } as NotificationOptions)
+  }
+
+  if (payload?.t === 'routine') {
+    // The sync above created this occurrence's to-do (the server can't read routines).
+    const routine = await db.routines.get(payload.id)
+    const item = routine?.lastGeneratedFor ? await db.items.get(await occurrenceId(routine.id, routine.lastGeneratedFor)) : undefined
+    if (!routine || routine.deletedAt || !item || item.doneAt || item.deletedAt) {
+      return self.registration.showNotification('Get It Done', { body: 'A routine came up on another device.', tag: 'routine-cleared' })
+    }
+    return self.registration.showNotification(item.name, {
+      body: `Due ${shortLabel(item.deadlineAt ?? Date.now(), Date.now())} · ${describeSchedule(routine.schedule)}`,
+      tag: `routine-${routine.id}`,
+      icon: '/pwa-192x192.png',
+      badge: '/pwa-64x64.png',
+      data: { id: item.id },
       actions: [
         { action: 'done', title: 'Mark done' },
         { action: 'snooze', title: 'Snooze 1 hour' },

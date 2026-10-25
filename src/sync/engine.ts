@@ -1,6 +1,8 @@
 import type { ItemType, Section } from '../categories'
 import type { Priority } from '../when'
-import { db, getLocal, setLocal, type Item, type Setting } from '../db'
+import { db, getLocal, setLocal, type Item, type Routine, type Setting } from '../db'
+import type { Schedule } from '../routine'
+import { generateDue } from '../routineGen'
 import {
   DEFAULT_TTL_DAYS,
   MAX_ITEMS_PER_PUSH,
@@ -8,7 +10,9 @@ import {
   type PullResponse,
   type PushRequest,
   type PushResponse,
+  MAX_ROUTINES_PER_PUSH,
   type WireItem,
+  type WireRoutine,
 } from './protocol'
 import { decryptJson, deriveKeys, encryptJson, type VaultKeys } from './vault'
 
@@ -33,6 +37,19 @@ interface ItemSecret {
   section?: Section
   createdAt: number
   priority?: Priority
+  routineId?: string
+}
+
+/** The encrypted part of a routine (all of it but the next occurrence time). */
+interface RoutineSecret {
+  name: string
+  type: ItemType
+  section?: Section
+  priority?: Priority
+  schedule: Schedule
+  paused: boolean
+  lastGeneratedFor: number | null
+  createdAt: number
 }
 
 // ---------- Status ----------
@@ -87,12 +104,16 @@ export async function vaultKeys(): Promise<VaultKeys | null> {
 export async function setVaultKey(vaultKey: string, { newVault = false } = {}) {
   await loadClock()
   const now = syncedNow()
-  await db.transaction('rw', db.items, db.settings, db.local, async () => {
+  await db.transaction('rw', db.items, db.settings, db.routines, db.local, async () => {
     await setLocal('vaultKey', vaultKey)
     await setLocal('cursor', 0)
     await db.items.toCollection().modify((i) => {
       i.dirty = 1
       if (newVault) i.updatedAt = Math.max(i.updatedAt + 1, now)
+    })
+    await db.routines.toCollection().modify((r) => {
+      r.dirty = 1
+      if (newVault) r.updatedAt = Math.max(r.updatedAt + 1, now)
     })
     await db.settings.toCollection().modify((s) => {
       s.dirty = 1
@@ -164,7 +185,14 @@ async function api<T>(token: string, path: string, init: RequestInit = {}): Prom
 }
 
 async function toWire(keys: VaultKeys, item: Item): Promise<WireItem> {
-  const secret: ItemSecret = { name: item.name, type: item.type, section: item.section, createdAt: item.createdAt, priority: item.priority }
+  const secret: ItemSecret = {
+    name: item.name,
+    type: item.type,
+    section: item.section,
+    createdAt: item.createdAt,
+    priority: item.priority,
+    routineId: item.routineId,
+  }
   return {
     id: item.id,
     ciphertext: item.deletedAt ? '' : await encryptJson(keys.dataKey, secret, item.id),
@@ -176,12 +204,33 @@ async function toWire(keys: VaultKeys, item: Item): Promise<WireItem> {
   }
 }
 
+async function toWireRoutine(keys: VaultKeys, r: Routine): Promise<WireRoutine> {
+  const secret: RoutineSecret = {
+    name: r.name,
+    type: r.type,
+    section: r.section,
+    priority: r.priority,
+    schedule: r.schedule,
+    paused: r.paused,
+    lastGeneratedFor: r.lastGeneratedFor,
+    createdAt: r.createdAt,
+  }
+  return {
+    id: r.id,
+    ciphertext: r.deletedAt ? '' : await encryptJson(keys.dataKey, secret, r.id),
+    nextAt: r.deletedAt || r.paused ? null : r.nextAt,
+    deletedAt: r.deletedAt,
+    updatedAt: r.updatedAt,
+  }
+}
+
 async function pushChanges(keys: VaultKeys) {
   const deviceId = await getDeviceId()
   for (;;) {
     const items = await db.items.where('dirty').equals(1).limit(MAX_ITEMS_PER_PUSH).toArray()
     const settings = await db.settings.where('dirty').equals(1).toArray()
-    if (items.length === 0 && settings.length === 0) return
+    const routines = await db.routines.where('dirty').equals(1).limit(MAX_ROUTINES_PER_PUSH).toArray()
+    if (items.length === 0 && settings.length === 0 && routines.length === 0) return
 
     const body: PushRequest = {
       deviceId,
@@ -189,13 +238,18 @@ async function pushChanges(keys: VaultKeys) {
       settings: await Promise.all(
         settings.map(async (s) => ({ key: s.key, ciphertext: await encryptJson(keys.dataKey, s.value, s.key), updatedAt: s.updatedAt })),
       ),
+      routines: await Promise.all(routines.map((r) => toWireRoutine(keys, r))),
     }
     const sentAt = Date.now()
     const res = await api<PushResponse>(keys.token, API, { method: 'POST', body: JSON.stringify(body) })
     await learnServerTime(res.serverTime, sentAt)
 
     // Clear dirty only where nothing changed while the request was in flight.
-    await db.transaction('rw', db.items, db.settings, async () => {
+    await db.transaction('rw', db.items, db.settings, db.routines, async () => {
+      for (const sent of routines) {
+        const now = await db.routines.get(sent.id)
+        if (now?.updatedAt === sent.updatedAt) await db.routines.update(now.id, { dirty: 0 })
+      }
       for (const sent of items) {
         const now = await db.items.get(sent.id)
         // Deleted rows stay (hidden) as local tombstones so Undo still works; cleanupLocal drops them later.
@@ -206,7 +260,7 @@ async function pushChanges(keys: VaultKeys) {
         if (now?.updatedAt === sent.updatedAt) await db.settings.update(sent.key, { dirty: 0 })
       }
     })
-    if (items.length < MAX_ITEMS_PER_PUSH) return
+    if (items.length < MAX_ITEMS_PER_PUSH && routines.length < MAX_ROUTINES_PER_PUSH) return
   }
 }
 
@@ -234,6 +288,7 @@ async function applyRemote(keys: VaultKeys, w: WireItem): Promise<'added' | 'upd
     section: secret.section,
     createdAt: secret.createdAt ?? w.updatedAt,
     priority: secret.priority,
+    routineId: secret.routineId,
     deadlineAt: w.deadlineAt,
     remindAt: w.remindAt,
     doneAt: w.doneAt,
@@ -242,6 +297,24 @@ async function applyRemote(keys: VaultKeys, w: WireItem): Promise<'added' | 'upd
     dirty: 0,
   })
   return local ? 'updated' : 'added'
+}
+
+/** Applies one remote routine if it's newer than ours. */
+async function applyRemoteRoutine(keys: VaultKeys, w: WireRoutine) {
+  const local = await db.routines.get(w.id)
+  if (local && local.updatedAt >= w.updatedAt) return
+  if (w.deletedAt) {
+    if (local) await db.routines.delete(w.id)
+    return
+  }
+  let secret: RoutineSecret
+  try {
+    secret = await decryptJson<RoutineSecret>(keys.dataKey, w.ciphertext, w.id)
+  } catch {
+    console.warn('Could not decrypt routine', w.id)
+    return
+  }
+  await db.routines.put({ id: w.id, ...secret, nextAt: w.nextAt, deletedAt: null, updatedAt: w.updatedAt, dirty: 0 })
 }
 
 export interface PullResult {
@@ -260,6 +333,7 @@ async function pullChanges(keys: VaultKeys): Promise<PullResult> {
       const kind = await applyRemote(keys, w)
       if (kind) changes.push({ id: w.id, kind })
     }
+    for (const r of res.routines ?? []) await applyRemoteRoutine(keys, r)
     for (const s of res.settings) {
       const local = await db.settings.get(s.key)
       if (local && local.updatedAt >= s.updatedAt) continue
@@ -283,6 +357,7 @@ async function cleanupLocal() {
   await db.items
     .filter((i) => i.dirty === 0 && ((i.doneAt !== null && i.doneAt < now - ttl * DAY) || (i.deletedAt !== null && i.deletedAt < now - TOMBSTONE_DAYS * DAY)))
     .delete()
+  await db.routines.filter((r) => r.dirty === 0 && r.deletedAt !== null && r.deletedAt < now - TOMBSTONE_DAYS * DAY).delete()
 }
 
 let running: Promise<PullResult | null> | null = null
@@ -314,6 +389,8 @@ export function syncNow(): Promise<PullResult | null> {
 
 async function syncOnce(): Promise<PullResult | null> {
   await loadClock()
+  // Routines create today's to-dos even offline or before pairing (local first).
+  await generateDue(syncedNow())
   const keys = await vaultKeys()
   if (!keys) {
     setStatus('locked')
@@ -327,6 +404,8 @@ async function syncOnce(): Promise<PullResult | null> {
   try {
     await pushChanges(keys)
     const result = await pullChanges(keys)
+    // Routines pulled from another device may have occurrences due; create them and send them up.
+    if ((await generateDue(syncedNow())) > 0 || (await db.routines.where('dirty').equals(1).count()) > 0) await pushChanges(keys)
     await cleanupLocal()
     setStatus('synced')
     return result

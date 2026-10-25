@@ -1,6 +1,6 @@
 # Roadmap
 
-Planned features, not built yet. Shipped behaviour is described in [README.md](../README.md) and [PRD.md](../PRD.md).
+**Routines (1) and `/edit` (2) are built.** Their sections below are kept as the design notes they were built from. Shipped behaviour is described in [README.md](../README.md) and [PRD.md](../PRD.md).
 
 ## Guiding rule: deterministic first, LLM last
 
@@ -33,7 +33,7 @@ For reference when extending it. Phrases are read at the **end** of the text, an
 | `this weekend` · `next weekend` · `next week` | the coming Sunday 10pm · the Sunday after · next Monday 10pm |
 | `urgent` · `asap` · `important` · `!!` · `p1` / `low priority` · `whenever` · `p3` | priority |
 
-## 1. Routines
+## 1. Routines (built)
 
 Recurring items that create themselves on schedule, for example:
 
@@ -75,7 +75,7 @@ A routine is recognised when the text contains `every …`, `daily`, `weekly`, `
 - So that an occurrence appears even if no device is open, the server can schedule a QStash job at the next occurrence time (it knows only the time, like reminders) that sends a push; the service worker then generates the item and shows "Clean dishwasher is due".
 - Missed occurrences while every device was off: create only the most recent one, not a backlog.
 
-## 2. Edit from the add bar (`/edit`)
+## 2. Edit from the add bar (`/edit`, built)
 
 Typing `/edit` turns the add bar into a picker for changing existing items without leaving the keyboard.
 

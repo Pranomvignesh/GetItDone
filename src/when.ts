@@ -33,9 +33,9 @@ const PART_OF_DAY: Record<string, number> = { morning: 9, afternoon: 15, evening
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 
-const WEEKDAY = String.raw`sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?`
-const MONTH = String.raw`jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?`
-const CLOCK = String.raw`(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)|(\d{1,2}):(\d{2})|noon|midnight`
+export const WEEKDAY = String.raw`sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?`
+export const MONTH = String.raw`jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?`
+export const CLOCK = String.raw`(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)|(\d{1,2}):(\d{2})|noon|midnight`
 const NUMBER_WORDS: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 }
 
 /** What a phrase said, before it's turned into a timestamp. */
@@ -50,18 +50,18 @@ interface Spec {
   tonight?: boolean
 }
 
-function midnight(now: number, addDays = 0): Date {
+export function midnight(now: number, addDays = 0): Date {
   const d = new Date(now)
   d.setHours(0, 0, 0, 0)
   d.setDate(d.getDate() + addDays)
   return d
 }
 
-function weekdayIndex(word: string): number {
+export function weekdayIndex(word: string): number {
   return ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(word.slice(0, 3).toLowerCase())
 }
 
-function monthIndex(word: string): number {
+export function monthIndex(word: string): number {
   return ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf(word.slice(0, 3).toLowerCase())
 }
 
@@ -74,7 +74,7 @@ function nextWeekday(now: number, index: number, strictlyAfter: boolean): Date {
 }
 
 /** A day-of-month date: this year (or month) unless it has passed, then the next one. */
-function upcomingDate(now: number, month: number | null, day: number): Date | null {
+export function upcomingDate(now: number, month: number | null, day: number): Date | null {
   const today = midnight(now)
   const year = today.getFullYear()
   const m = month ?? today.getMonth()
@@ -84,7 +84,7 @@ function upcomingDate(now: number, month: number | null, day: number): Date | nu
   return d.getDate() === day ? d : null
 }
 
-function clockTime(m: RegExpMatchArray, offset: number): { h: number; m: number } | null {
+export function clockTime(m: RegExpMatchArray, offset: number): { h: number; m: number } | null {
   const text = m[offset - 1].toLowerCase()
   if (text.includes('noon')) return { h: 12, m: 0 }
   if (text.includes('midnight')) return { h: 23, m: 59 }

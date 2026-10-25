@@ -11,6 +11,17 @@ export interface WireItem {
   updatedAt: number
 }
 
+/** A routine: everything but its next occurrence time is encrypted. */
+export interface WireRoutine {
+  id: string
+  /** Encrypted name, category, priority, schedule and generation state; empty for tombstones. */
+  ciphertext: string
+  /** Next occurrence, so the server can push at that time even if no device is open. Null when paused or ended. */
+  nextAt: number | null
+  deletedAt: number | null
+  updatedAt: number
+}
+
 export interface WireSetting {
   key: string
   ciphertext: string
@@ -21,6 +32,7 @@ export interface PushRequest {
   deviceId: string
   items: WireItem[]
   settings: WireSetting[]
+  routines?: WireRoutine[]
 }
 
 export interface PushResponse {
@@ -31,6 +43,7 @@ export interface PushResponse {
 export interface PullResponse {
   items: WireItem[]
   settings: WireSetting[]
+  routines: WireRoutine[]
   /** Pass back as ?since= next time. */
   cursor: number
   hasMore: boolean
@@ -45,6 +58,7 @@ export interface VaultStatus {
 
 /** Batch size limits shared by client and server. */
 export const MAX_ITEMS_PER_PUSH = 500
+export const MAX_ROUTINES_PER_PUSH = 200
 export const PULL_PAGE_SIZE = 1000
 /** Deleted items keep a tombstone (id and timestamps only) this long so every device learns of the delete. */
 export const TOMBSTONE_DAYS = 30

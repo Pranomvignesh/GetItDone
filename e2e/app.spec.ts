@@ -19,7 +19,7 @@ async function add(page: Page, text: string) {
 }
 
 /** On phones only one list shows at a time. */
-async function showList(page: Page, list: 'Groceries' | 'To-dos') {
+async function showList(page: Page, list: 'Groceries' | 'To-dos' | 'Routines') {
   if (!isDesktop(page)) await page.getByRole('tab', { name: new RegExp(list) }).click()
 }
 
@@ -112,6 +112,48 @@ test('understands times and priority typed in the add bar', async ({ page }) => 
   await expect(row.getByRole('img', { name: 'High priority' })).toBeVisible()
   await expect(row.getByText('Tomorrow 10pm')).toBeVisible()
   await expect(row.getByRole('img', { name: /Reminder Tomorrow 6pm/ })).toBeVisible()
+})
+
+test('adds a routine and creates today\'s to-do from it', async ({ page }) => {
+  await pair(page)
+  const name = uniq('water plants')
+  // 11:59pm is still ahead today, so today's occurrence is created straight away.
+  await page.getByLabel('Add items').fill(`${name} every day at 11:59pm`)
+  await expect(page.getByRole('status').filter({ hasText: name })).toContainText('Routine: Every day at 11:59pm')
+  await page.getByLabel('Add items').press('Enter')
+
+  await showList(page, 'Routines')
+  const routine = page.getByRole('button', { name: new RegExp(`^${name}`) })
+  await expect(routine).toContainText('Every day at 11:59pm')
+
+  // Today's occurrence appears in To-dos with a repeat marker.
+  await showList(page, 'To-dos')
+  const todo = page.getByRole('listitem').filter({ has: page.getByRole('checkbox', { name: `Check ${name}` }) })
+  await expect(todo.getByRole('img', { name: 'From a routine' })).toBeVisible()
+})
+
+test('edits an item from the add bar with /edit', async ({ page }) => {
+  await pair(page)
+  const name = uniq('fix tap')
+  await page.getByLabel('Add items').fill(name)
+  await page.getByLabel('Add items').press('Enter')
+
+  const field = page.getByRole('combobox')
+  await field.fill(`/edit ${name.slice(0, 6)}`)
+  await expect(page.getByRole('option', { name: new RegExp(name) })).toBeVisible()
+  await field.press('Enter')
+  await expect(page.getByRole('combobox', { name: `Edit ${name}` })).toHaveValue(name)
+
+  await page.getByRole('combobox').fill(`${name} tomorrow urgent`)
+  await page.getByRole('combobox').press('Enter')
+  await expect(page.getByText(`Updated “${name}”`)).toBeVisible()
+
+  await showList(page, 'To-dos')
+  // Rows only (the "Updated" toast is a list item too).
+  const row = page.getByRole('listitem').filter({ has: page.getByRole('checkbox', { name: `Check ${name}` }) })
+  await expect(row).toHaveCount(1)
+  await expect(row.getByText('Tomorrow 10pm')).toBeVisible()
+  await expect(row.getByRole('img', { name: 'High priority' })).toBeVisible()
 })
 
 test('remembers the theme choice', async ({ page }) => {

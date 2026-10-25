@@ -1,5 +1,6 @@
 import { TODO, categoryFromKey, type Category } from './categories'
 import { DICTIONARY, TODO_VERBS } from './dictionary'
+import { parseRoutine, type ParsedRoutine } from './routine'
 import { parseWhen, type Priority } from './when'
 
 /** User corrections: normalized item name → category key (see categoryKey). */
@@ -15,6 +16,8 @@ export interface ParsedEntry extends ParsedItem {
   deadlineAt: number | null
   remindAt: number | null
   priority?: Priority
+  /** Set when the text describes a routine ("… every month on the 1st sunday at 10am"). */
+  routine?: ParsedRoutine
 }
 
 const BUY_PREFIX = /^(buy|pick up|grab)\s+(some\s+|more\s+)?/i
@@ -94,11 +97,18 @@ export function parseInput(raw: string, overrides: Overrides = {}, now = Date.no
     if (parts.length > 0 && parseWhen(part, now).text === '') parts[parts.length - 1] += `, ${part}`
     else parts.push(part)
   }
-  return parts.map((part) => {
-    const when = parseWhen(part, now)
-    // Nothing left but a time phrase ("tomorrow" on its own): keep the words as the item.
-    if (!when.text) return { ...categorize(part, overrides), deadlineAt: null, remindAt: null }
-    return { ...categorize(when.text, overrides), deadlineAt: when.deadlineAt, remindAt: when.remindAt, priority: when.priority }
-  })
+  return parts.map((part) => parseOne(part, overrides, now))
+}
+
+/** Parses text as a single item, without splitting on commas (used when editing an existing item). */
+export function parseOne(part: string, overrides: Overrides = {}, now = Date.now()): ParsedEntry {
+  const routine = parseRoutine(part, now)
+  if (routine) {
+    return { ...categorize(routine.name, overrides), deadlineAt: null, remindAt: null, priority: routine.priority, routine }
+  }
+  const when = parseWhen(part, now)
+  // Nothing left but a time phrase ("tomorrow" on its own): keep the words as the item.
+  if (!when.text) return { ...categorize(part.trim(), overrides), deadlineAt: null, remindAt: null }
+  return { ...categorize(when.text, overrides), deadlineAt: when.deadlineAt, remindAt: when.remindAt, priority: when.priority }
 }
 

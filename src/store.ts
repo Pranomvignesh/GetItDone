@@ -1,6 +1,7 @@
 import { categoryKey, type Category } from './categories'
-import { normalize, parseInput, type Overrides } from './categorize'
-import { db, type Item } from './db'
+import { normalize, parseInput, type Overrides, type ParsedEntry } from './categorize'
+import { db, type Item, type Routine } from './db'
+import type { Schedule } from './routine'
 import { requestSync, syncedNow } from './sync/engine'
 
 const OVERRIDES_KEY = 'categoryOverrides'
@@ -9,9 +10,34 @@ export async function getOverrides(): Promise<Overrides> {
   return ((await db.settings.get(OVERRIDES_KEY))?.value as Overrides) ?? {}
 }
 
-export async function addFromInput(raw: string): Promise<Item[]> {
+export interface Added {
+  items: Item[]
+  routines: Routine[]
+}
+
+/** Adds everything typed in the add bar: one-off items, and routines for parts with a schedule. */
+export async function addFromInput(raw: string): Promise<Added> {
   const now = syncedNow()
-  const parsed = parseInput(raw, await getOverrides(), now)
+  const all = parseInput(raw, await getOverrides(), now)
+  const parsed = all.filter((p) => !p.routine)
+  const routines: Routine[] = all
+    .filter((p) => p.routine)
+    .map((p, i) => ({
+      id: crypto.randomUUID(),
+      name: p.name,
+      type: p.category.type,
+      section: p.category.section,
+      priority: p.priority,
+      schedule: p.routine!.schedule,
+      paused: false,
+      lastGeneratedFor: null,
+      nextAt: null, // Worked out on the next sync pass (routineGen).
+      createdAt: now + i,
+      updatedAt: now + i,
+      deletedAt: null,
+      dirty: 1,
+    }))
+  if (routines.length) await db.routines.bulkAdd(routines)
   // Offset by index so items added together keep their typed order when sorted by newest.
   const items: Item[] = parsed.map((p, i) => ({
     id: crypto.randomUUID(),
@@ -27,9 +53,35 @@ export async function addFromInput(raw: string): Promise<Item[]> {
     updatedAt: now + i,
     dirty: 1,
   }))
-  await db.items.bulkAdd(items)
+  if (items.length) await db.items.bulkAdd(items)
   requestSync()
-  return items
+  return { items, routines }
+}
+
+export async function updateRoutine(id: string, patch: Partial<Pick<Routine, 'name' | 'type' | 'section' | 'priority' | 'schedule' | 'paused'>>) {
+  const now = syncedNow()
+  const extra: Partial<Routine> = {}
+  // Resuming doesn't backfill what was missed while paused.
+  if (patch.paused === false) {
+    const r = await db.routines.get(id)
+    if (r?.paused) extra.lastGeneratedFor = Math.max(r.lastGeneratedFor ?? 0, now)
+  }
+  await db.routines.update(id, { ...patch, ...extra, nextAt: null, updatedAt: now, dirty: 1 })
+  requestSync()
+}
+
+export function setRoutineSchedule(id: string, schedule: Schedule) {
+  return updateRoutine(id, { schedule })
+}
+
+export async function deleteRoutine(id: string) {
+  await db.routines.update(id, { deletedAt: syncedNow(), updatedAt: syncedNow(), dirty: 1 })
+  requestSync()
+}
+
+export async function restoreRoutine(id: string) {
+  await db.routines.update(id, { deletedAt: null, updatedAt: syncedNow(), dirty: 1 })
+  requestSync()
 }
 
 export async function updateItem(id: string, patch: Partial<Omit<Item, 'id' | 'createdAt'>>) {
@@ -60,4 +112,20 @@ export async function setCategory(item: Item, category: Category) {
     await db.settings.put({ key: OVERRIDES_KEY, value: overrides, updatedAt: now, dirty: 1 })
   })
   requestSync()
+}
+
+/**
+ * Applies an edit made in the add bar (/edit): name, deadline, reminder and
+ * priority from the re-parsed text. The category follows the name only if the
+ * name changed, so a category chosen by hand survives other edits.
+ */
+export async function updateFromText(item: Item, parsed: ParsedEntry) {
+  const renamed = normalize(parsed.name) !== normalize(item.name)
+  await updateItem(item.id, {
+    name: parsed.name,
+    deadlineAt: parsed.deadlineAt,
+    remindAt: parsed.remindAt,
+    priority: parsed.priority,
+    ...(renamed ? { type: parsed.category.type, section: parsed.category.section } : {}),
+  })
 }

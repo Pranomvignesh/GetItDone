@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
 import type { ItemType, Section } from './categories'
+import type { Schedule } from './routine'
 import type { Priority } from './when'
 
 export interface Item {
@@ -11,12 +12,33 @@ export interface Item {
   remindAt: number | null
   /** High items sort first, low last; normal when unset. Synced inside the encrypted text. */
   priority?: Priority
+  /** Set on to-dos a routine created. */
+  routineId?: string
   doneAt: number | null
   /** Soft delete, so the delete can sync to other devices. */
   deletedAt: number | null
   createdAt: number
   updatedAt: number
   /** 1 while the change hasn't been pushed to the server. */
+  dirty: 0 | 1
+}
+
+/** A recurring item. Each occurrence becomes an ordinary to-do on its day. */
+export interface Routine {
+  id: string
+  name: string
+  type: ItemType
+  section?: Section
+  priority?: Priority
+  schedule: Schedule
+  paused: boolean
+  /** The latest occurrence already turned into a to-do. */
+  lastGeneratedFor: number | null
+  /** Next occurrence time; the only part the server can read (it pushes then). */
+  nextAt: number | null
+  createdAt: number
+  updatedAt: number
+  deletedAt: number | null
   dirty: 0 | 1
 }
 
@@ -39,6 +61,7 @@ export const db = new Dexie('get-it-done', { indexedDB: globalThis.indexedDB, ID
   items: EntityTable<Item, 'id'>
   settings: EntityTable<Setting, 'key'>
   local: EntityTable<LocalValue, 'key'>
+  routines: EntityTable<Routine, 'id'>
 }
 
 db.version(1).stores({
@@ -51,6 +74,14 @@ db.version(2).stores({
   items: 'id, updatedAt, dirty',
   settings: 'key, dirty',
   local: 'key',
+})
+
+// v3: routines.
+db.version(3).stores({
+  items: 'id, updatedAt, dirty',
+  settings: 'key, dirty',
+  local: 'key',
+  routines: 'id, updatedAt, dirty',
 })
 
 export async function getLocal<T>(key: string): Promise<T | undefined> {
