@@ -1,4 +1,4 @@
-import { Bell, PencilLine, Trash2 } from 'lucide-react'
+import { Bell, Flag, PencilLine, Trash2 } from 'lucide-react'
 import { useRef, useState, type PointerEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -124,11 +124,15 @@ export function Row({ item, onOpen, onDelete, dense = false }: Props) {
           )}
           onClick={() => !suppressClick.current && onOpen(item)}
         >
+          {item.priority === 'high' && !done && (
+            <Flag className="mr-1.5 inline size-3.5 -translate-y-px fill-destructive text-destructive" aria-label="High priority" />
+          )}
           {item.name}
         </button>
 
-        {(item.deadlineAt !== null || item.remindAt !== null) && (
+        {(item.deadlineAt !== null || item.remindAt !== null || (item.priority === 'low' && !done)) && (
           <span className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums text-muted-foreground">
+            {item.priority === 'low' && !done && <span className="rounded border px-1.5 py-px">Low</span>}
             {item.remindAt !== null && !done && <Bell className="size-3.5" aria-label={`Reminder ${shortLabel(item.remindAt, now)}`} />}
             {item.deadlineAt !== null && (
               <span className={cn('rounded px-1.5 py-0.5', overdue ? 'bg-destructive/10 font-semibold text-destructive' : 'bg-muted')}>

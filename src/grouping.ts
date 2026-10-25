@@ -9,10 +9,17 @@ export interface Grouped {
 }
 
 const newestFirst = (a: Item, b: Item) => b.createdAt - a.createdAt
+const RANK = { high: 0, normal: 1, low: 2 } as const
+const byPriority = (a: Item, b: Item) => RANK[a.priority ?? 'normal'] - RANK[b.priority ?? 'normal']
 const recentlyDoneFirst = (a: Item, b: Item) => (b.doneAt ?? 0) - (a.doneAt ?? 0)
 
-/** To-dos: deadline soonest first (so overdue floats to the top), undated after, newest first within each. */
+/**
+ * To-dos: high priority first and low last; within that, deadline soonest first
+ * (so overdue floats up), undated after, newest first.
+ */
 function todoOrder(a: Item, b: Item) {
+  const p = byPriority(a, b)
+  if (p !== 0) return p
   if (a.deadlineAt !== b.deadlineAt) {
     if (a.deadlineAt === null) return 1
     if (b.deadlineAt === null) return -1
@@ -30,7 +37,7 @@ export function groupItems(all: Item[]): Grouped {
   return {
     groceries: SECTIONS.map((section) => ({
       section,
-      items: openGroceries.filter((i) => (i.section ?? 'Other') === section).sort(newestFirst),
+      items: openGroceries.filter((i) => (i.section ?? 'Other') === section).sort((a, b) => byPriority(a, b) || newestFirst(a, b)),
     })).filter((s) => s.items.length > 0),
     groceriesDone: groceries.filter((i) => i.doneAt).sort(recentlyDoneFirst),
     todos: todos.filter((i) => !i.doneAt).sort(todoOrder),

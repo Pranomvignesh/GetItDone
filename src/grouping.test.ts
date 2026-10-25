@@ -53,3 +53,23 @@ describe('groupItems', () => {
     expect(g.todos.map((i) => i.name)).toEqual(['overdue', 'later', 'new undated', 'old undated'])
   })
 })
+
+describe('priority', () => {
+  it('puts high priority first and low last, then deadlines', () => {
+    const g = groupItems([
+      item({ name: 'low', priority: 'low', deadlineAt: 100 }),
+      item({ name: 'soon', deadlineAt: 500 }),
+      item({ name: 'urgent, later', priority: 'high', deadlineAt: 9000 }),
+      item({ name: 'undated' }),
+    ])
+    expect(g.todos.map((i) => i.name)).toEqual(['urgent, later', 'soon', 'undated', 'low'])
+  })
+
+  it('applies within grocery sections too', () => {
+    const g = groupItems([
+      item({ type: 'grocery', section: 'Produce', name: 'apples' }),
+      item({ type: 'grocery', section: 'Produce', name: 'limes', priority: 'high' }),
+    ])
+    expect(g.groceries[0].items.map((i) => i.name)).toEqual(['limes', 'apples'])
+  })
+})

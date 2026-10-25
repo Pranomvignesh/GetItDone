@@ -1,4 +1,5 @@
 import type { ItemType, Section } from '../categories'
+import type { Priority } from '../when'
 import { db, getLocal, setLocal, type Item, type Setting } from '../db'
 import {
   DEFAULT_TTL_DAYS,
@@ -31,6 +32,7 @@ interface ItemSecret {
   type: ItemType
   section?: Section
   createdAt: number
+  priority?: Priority
 }
 
 // ---------- Status ----------
@@ -162,7 +164,7 @@ async function api<T>(token: string, path: string, init: RequestInit = {}): Prom
 }
 
 async function toWire(keys: VaultKeys, item: Item): Promise<WireItem> {
-  const secret: ItemSecret = { name: item.name, type: item.type, section: item.section, createdAt: item.createdAt }
+  const secret: ItemSecret = { name: item.name, type: item.type, section: item.section, createdAt: item.createdAt, priority: item.priority }
   return {
     id: item.id,
     ciphertext: item.deletedAt ? '' : await encryptJson(keys.dataKey, secret, item.id),
@@ -231,6 +233,7 @@ async function applyRemote(keys: VaultKeys, w: WireItem): Promise<'added' | 'upd
     type: secret.type,
     section: secret.section,
     createdAt: secret.createdAt ?? w.updatedAt,
+    priority: secret.priority,
     deadlineAt: w.deadlineAt,
     remindAt: w.remindAt,
     doneAt: w.doneAt,

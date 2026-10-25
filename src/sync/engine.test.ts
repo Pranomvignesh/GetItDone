@@ -70,6 +70,16 @@ describe('sync between devices', () => {
     expect(phone.engine.getSyncStatus().status).toBe('synced')
   })
 
+  it('syncs parsed deadlines, reminders and priority (priority encrypted)', async () => {
+    await phone.store.addFromInput('wash shoe tomorrow urgent, remind at 6pm')
+    await phone.engine.syncNow()
+    await mac.engine.syncNow()
+    const [wash] = await mac.db.items.toArray()
+    expect(wash).toMatchObject({ name: 'wash shoe', priority: 'high' })
+    expect(wash.deadlineAt).not.toBeNull()
+    expect(wash.remindAt).not.toBeNull()
+  })
+
   it('syncs category corrections as a setting', async () => {
     await phone.store.addFromInput('tofu')
     const [tofu] = await phone.db.items.toArray()

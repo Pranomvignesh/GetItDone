@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
 import type { ItemType, Section } from './categories'
+import type { Priority } from './when'
 
 export interface Item {
   id: string
@@ -8,6 +9,8 @@ export interface Item {
   section?: Section
   deadlineAt: number | null
   remindAt: number | null
+  /** High items sort first, low last; normal when unset. Synced inside the encrypted text. */
+  priority?: Priority
   doneAt: number | null
   /** Soft delete, so the delete can sync to other devices. */
   deletedAt: number | null

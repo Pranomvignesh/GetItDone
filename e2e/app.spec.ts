@@ -95,6 +95,25 @@ test('sets a deadline from a preset and shows it on the row', async ({ page }) =
   await expect(page.getByRole('listitem').filter({ hasText: passport }).getByText('Tomorrow 9am')).toBeVisible()
 })
 
+test('understands times and priority typed in the add bar', async ({ page }) => {
+  await pair(page)
+  const name = uniq('wash shoe')
+  await page.getByLabel('Add items').fill(`${name} tomorrow urgent, remind at 6pm`)
+  // The preview shows what was understood before adding.
+  const preview = page.getByRole('status').filter({ hasText: name })
+  await expect(preview).toContainText('Due Tomorrow 10pm')
+  await expect(preview).toContainText('Remind Tomorrow 6pm')
+  await expect(preview).toContainText('High')
+  await page.getByLabel('Add items').press('Enter')
+
+  await showList(page, 'To-dos')
+  const row = page.getByRole('listitem').filter({ hasText: name })
+  await expect(row).toHaveCount(1) // ", remind at 6pm" didn't become an item of its own
+  await expect(row.getByRole('img', { name: 'High priority' })).toBeVisible()
+  await expect(row.getByText('Tomorrow 10pm')).toBeVisible()
+  await expect(row.getByRole('img', { name: /Reminder Tomorrow 6pm/ })).toBeVisible()
+})
+
 test('remembers the theme choice', async ({ page }) => {
   await pair(page)
   const html = page.locator('html')

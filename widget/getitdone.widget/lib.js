@@ -102,15 +102,22 @@ export async function loadList(config) {
   return { ...group(items), serverOffset }
 }
 
-/** Same grouping as the app: grocery sections in store-walk order, to-dos by deadline then newest. */
+const RANK = { high: 0, normal: 1, low: 2 }
+const byPriority = (a, b) => RANK[a.priority || 'normal'] - RANK[b.priority || 'normal']
+
+/** Same grouping as the app: grocery sections in store-walk order; high priority first, then deadline, then newest. */
 export function group(items) {
   const groceries = SECTIONS.map((section) => ({
     section,
-    items: items.filter((i) => i.type === 'grocery' && (i.section || 'Other') === section).sort((a, b) => b.createdAt - a.createdAt),
+    items: items
+      .filter((i) => i.type === 'grocery' && (i.section || 'Other') === section)
+      .sort((a, b) => byPriority(a, b) || b.createdAt - a.createdAt),
   })).filter((s) => s.items.length > 0)
   const todos = items
     .filter((i) => i.type === 'todo')
     .sort((a, b) => {
+      const p = byPriority(a, b)
+      if (p !== 0) return p
       if (a.deadlineAt !== b.deadlineAt) {
         if (a.deadlineAt === null) return 1
         if (b.deadlineAt === null) return -1
@@ -125,7 +132,7 @@ export function group(items) {
 export async function markDone(config, item, serverOffset = 0) {
   const keys = await deriveKeys(vaultKeyFrom(config.vault))
   const now = Date.now() + serverOffset
-  const secret = { name: item.name, type: item.type, section: item.section, createdAt: item.createdAt }
+  const secret = { name: item.name, type: item.type, section: item.section, createdAt: item.createdAt, priority: item.priority }
   const body = {
     deviceId: 'mac-widget',
     settings: [],

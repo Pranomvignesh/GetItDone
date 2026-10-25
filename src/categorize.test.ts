@@ -73,3 +73,37 @@ describe('parseInput', () => {
     ])
   })
 })
+
+describe('parseInput with times and priority', () => {
+  const now = new Date(2026, 9, 21, 10, 0).getTime()
+  const at = (d: number, h: number) => new Date(2026, 9, d, h).getTime()
+
+  it('keeps a trailing "remind at …" with its item instead of splitting it off', () => {
+    const [wash] = parseInput('Wash shoe tomorrow, remind at 6pm', {}, now)
+    expect(parseInput('Wash shoe tomorrow, remind at 6pm', {}, now)).toHaveLength(1)
+    expect(wash).toMatchObject({ name: 'Wash shoe', deadlineAt: at(22, 22), remindAt: at(22, 18) })
+  })
+
+  it('attaches "urgent" after a comma to the item before it', () => {
+    expect(parseInput('call plumber, urgent', {}, now)).toEqual([
+      { name: 'call plumber', category: { type: 'todo' }, deadlineAt: null, remindAt: null, priority: 'high' },
+    ])
+  })
+
+  it('still splits ordinary lists, each with its own details', () => {
+    const items = parseInput('milk, wash shoe tonight, call bank at 6pm urgent', {}, now)
+    expect(items.map((i) => [i.name, categoryKey(i.category), i.deadlineAt, i.priority])).toEqual([
+      ['milk', 'Dairy & eggs', null, undefined],
+      ['wash shoe', 'To-do', at(21, 22), undefined],
+      ['call bank', 'To-do', at(21, 18), 'high'],
+    ])
+  })
+
+  it('categorises the name without the time words', () => {
+    expect(categoryKey(parseInput('milk tomorrow', {}, now)[0].category)).toBe('Dairy & eggs')
+  })
+
+  it('keeps a lone time phrase as the item text', () => {
+    expect(parseInput('tomorrow', {}, now)[0]).toMatchObject({ name: 'tomorrow', deadlineAt: null })
+  })
+})

@@ -1,5 +1,6 @@
 import { TODO, categoryFromKey, type Category } from './categories'
 import { DICTIONARY, TODO_VERBS } from './dictionary'
+import { parseWhen, type Priority } from './when'
 
 /** User corrections: normalized item name → category key (see categoryKey). */
 export type Overrides = Record<string, string>
@@ -7,6 +8,13 @@ export type Overrides = Record<string, string>
 export interface ParsedItem {
   name: string
   category: Category
+}
+
+/** One item from the add bar: name and category, plus any deadline, reminder and priority it mentioned. */
+export interface ParsedEntry extends ParsedItem {
+  deadlineAt: number | null
+  remindAt: number | null
+  priority?: Priority
 }
 
 const BUY_PREFIX = /^(buy|pick up|grab)\s+(some\s+|more\s+)?/i
@@ -75,7 +83,22 @@ export function categorize(text: string, overrides: Overrides = {}): ParsedItem 
   return { name: trimmed, category: TODO }
 }
 
-export function parseInput(raw: string, overrides: Overrides = {}): ParsedItem[] {
-  return splitInput(raw).map((s) => categorize(s, overrides))
+/**
+ * Parses the add bar: "milk, wash shoe tomorrow, remind at 6pm, call plumber urgent".
+ * A part that only holds a time or priority ("remind at 6pm", "urgent") belongs
+ * to the item before it rather than becoming an item of its own.
+ */
+export function parseInput(raw: string, overrides: Overrides = {}, now = Date.now()): ParsedEntry[] {
+  const parts: string[] = []
+  for (const part of splitInput(raw)) {
+    if (parts.length > 0 && parseWhen(part, now).text === '') parts[parts.length - 1] += `, ${part}`
+    else parts.push(part)
+  }
+  return parts.map((part) => {
+    const when = parseWhen(part, now)
+    // Nothing left but a time phrase ("tomorrow" on its own): keep the words as the item.
+    if (!when.text) return { ...categorize(part, overrides), deadlineAt: null, remindAt: null }
+    return { ...categorize(when.text, overrides), deadlineAt: when.deadlineAt, remindAt: when.remindAt, priority: when.priority }
+  })
 }
 

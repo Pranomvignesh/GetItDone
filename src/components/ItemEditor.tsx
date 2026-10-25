@@ -1,4 +1,4 @@
-import { Trash2 } from 'lucide-react'
+import { Flag, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,6 +9,7 @@ import { db, getLocal, type Item } from '../db'
 import { NO_AUTOFILL } from '../noAutofill'
 import { setCategory, updateItem } from '../store'
 import { useLive } from '../useLive'
+import type { Priority } from '../when'
 import { DateField } from './DateField'
 import { Panel } from './Panel'
 
@@ -80,6 +81,28 @@ export function ItemEditor({ id, desktop, onClose, onDelete }: Props) {
                   </ToggleGroupItem>
                 )
               })}
+            </ToggleGroup>
+          </div>
+
+          <div className="grid gap-2">
+            <Label id="item-priority">Priority</Label>
+            <ToggleGroup
+              type="single"
+              aria-labelledby="item-priority"
+              value={item.priority ?? 'normal'}
+              onValueChange={(v) => v && updateItem(item.id, { priority: v === 'normal' ? undefined : (v as Priority) })}
+              className="justify-start gap-1.5"
+            >
+              {(['low', 'normal', 'high'] as const).map((p) => (
+                <ToggleGroupItem
+                  key={p}
+                  value={p}
+                  className="h-9 rounded-md border border-input bg-card px-3 font-normal capitalize data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:font-semibold data-[state=on]:text-primary-foreground"
+                >
+                  {p === 'high' && <Flag className="size-3.5" />}
+                  {p}
+                </ToggleGroupItem>
+              ))}
             </ToggleGroup>
           </div>
 

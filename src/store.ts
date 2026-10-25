@@ -10,16 +10,17 @@ export async function getOverrides(): Promise<Overrides> {
 }
 
 export async function addFromInput(raw: string): Promise<Item[]> {
-  const parsed = parseInput(raw, await getOverrides())
   const now = syncedNow()
+  const parsed = parseInput(raw, await getOverrides(), now)
   // Offset by index so items added together keep their typed order when sorted by newest.
   const items: Item[] = parsed.map((p, i) => ({
     id: crypto.randomUUID(),
     name: p.name,
     type: p.category.type,
     section: p.category.section,
-    deadlineAt: null,
-    remindAt: null,
+    deadlineAt: p.deadlineAt,
+    remindAt: p.remindAt,
+    priority: p.priority,
     doneAt: null,
     deletedAt: null,
     createdAt: now + i,

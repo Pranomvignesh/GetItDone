@@ -140,7 +140,11 @@ function DesktopLayout({ grouped, counts, renderRow, actions }: LayoutProps) {
       <header className="sticky top-0 z-40 border-b bg-background/90 backdrop-blur-lg backdrop-saturate-150">
         <div className="mx-auto grid max-w-[1320px] grid-cols-[240px_minmax(0,1fr)_240px] items-center gap-6 px-10 py-4">
           <AppName />
-          <AddBar placeholder="Add items — milk, eggs, call plumber…" className="w-full max-w-2xl justify-self-center" />
+          <AddBar
+            placeholder="Add items — milk, wash shoe tomorrow, call bank at 6pm urgent…"
+            className="w-full max-w-2xl justify-self-center"
+            previewPlacement="below"
+          />
           <div className="flex items-center gap-3 justify-self-end">
             <span className="text-xs text-muted-foreground">
               Press <kbd className="rounded border border-input px-1.5 py-px font-sans">/</kbd> to add
