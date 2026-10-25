@@ -1,4 +1,4 @@
-import { migrate } from './migrations'
+import { migrate } from './migrations.js'
 
 /** Minimal query interface shared by Neon (production) and PGlite (local dev, tests). */
 export interface Db {

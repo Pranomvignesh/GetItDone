@@ -1,5 +1,5 @@
-import { HttpError } from './http'
-import { safeEqual } from './auth'
+import { HttpError } from './http.js'
+import { safeEqual } from './auth.js'
 
 /** Runs a job endpoint at a time in the future. */
 export interface Scheduler {
@@ -74,7 +74,7 @@ function localScheduler(): Scheduler {
 }
 
 /**
- * Job endpoints accept a valid QStash signature, or (outside production, with no
+ * Job endpoints accept a valid QStash signature, or (off Vercel only, with no
  * QStash keys configured) the local scheduler's secret header.
  */
 export async function verifyJob(request: Request, body: string): Promise<void> {
@@ -89,7 +89,8 @@ export async function verifyJob(request: Request, body: string): Promise<void> {
     if (ok) return
     throw new HttpError(401, 'Bad signature')
   }
+  // The local scheduler's shortcut works only off Vercel (local dev, tests), never on a deployment.
   const secret = process.env.CRON_SECRET
-  if (process.env.VERCEL_ENV !== 'production' && secret && safeEqual(request.headers.get('x-local-job-secret') ?? '', secret)) return
+  if (!process.env.VERCEL && secret && safeEqual(request.headers.get('x-local-job-secret') ?? '', secret)) return
   throw new HttpError(401, 'Unauthorized')
 }

@@ -89,11 +89,28 @@ describe('auth', () => {
     expect((await GET(req('GET', '/api/sync'))).status).toBe(200)
   })
 
-  it('rate-limits a client after repeated failures, even with the right token', async () => {
+  it('rate-limits wrong tokens from a client after repeated failures', async () => {
     for (let i = 0; i < MAX_FAILURES; i++) await GET(req('GET', '/api/sync', undefined, 'wrong', '9.9.9.9'))
-    expect((await GET(req('GET', '/api/sync', undefined, token, '9.9.9.9'))).status).toBe(429)
-    // Other clients are unaffected.
-    expect((await GET(req('GET', '/api/sync', undefined, token, '8.8.8.8'))).status).toBe(200)
+    expect((await GET(req('GET', '/api/sync', undefined, 'wrong', '9.9.9.9'))).status).toBe(429)
+    // The owner's correct token still works from the same (possibly shared) address.
+    expect((await GET(req('GET', '/api/sync', undefined, token, '9.9.9.9'))).status).toBe(200)
+  })
+
+  it('does not count failures before a vault is set up', async () => {
+    const hash = process.env.VAULT_TOKEN_HASH
+    delete process.env.VAULT_TOKEN_HASH
+    for (let i = 0; i < MAX_FAILURES + 5; i++) await GET(req('GET', '/api/sync', undefined, token, '7.7.7.7'))
+    process.env.VAULT_TOKEN_HASH = hash
+    expect((await GET(req('GET', '/api/sync', undefined, token, '7.7.7.7'))).status).toBe(200)
+  })
+
+  it('refuses the local job shortcut on Vercel deployments', async () => {
+    process.env.VERCEL = '1'
+    try {
+      expect((await handle(remindJob)(req('POST', '/api/jobs/remind', { id: crypto.randomUUID(), at: 1 }))).status).toBe(401)
+    } finally {
+      delete process.env.VERCEL
+    }
   })
 
   it('rejects everything when the server has no vault configured', async () => {

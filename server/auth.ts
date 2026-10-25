@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
-import type { Db } from './db'
-import { HttpError, clientId } from './http'
+import type { Db } from './db.js'
+import { HttpError, clientId } from './http.js'
 
 /** Failed attempts allowed per client within the window before requests get 429. */
 export const MAX_FAILURES = 10
@@ -17,10 +17,18 @@ function tokenMatches(token: string): boolean {
 }
 
 /**
- * Checks the device token (FR6). Throws 401 for a missing or wrong token and 429
- * once a client has failed too often recently, before even checking the token.
+ * Checks the device token (FR6). A correct token always passes, so the owner
+ * can't be locked out by failures from a shared address (mobile carriers share
+ * IPs) or from their own devices retrying before the vault was set up. Wrong
+ * tokens are counted per client and get 429 once a client fails too often.
  */
 export async function requireDevice(db: Db, request: Request): Promise<void> {
+  const header = request.headers.get('authorization') ?? ''
+  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : ''
+  if (vaultConfigured() && token && tokenMatches(token)) return
+  // No vault yet: there's no secret to guess, so nothing to rate-limit.
+  if (!vaultConfigured()) throw new HttpError(401, 'Vault not set up on the server')
+
   const client = clientId(request)
   const now = Date.now()
   const [row] = await db.query<{ window_start: string; count: number }>(
@@ -30,11 +38,6 @@ export async function requireDevice(db: Db, request: Request): Promise<void> {
   if (row && now - Number(row.window_start) < FAILURE_WINDOW_MS && row.count >= MAX_FAILURES) {
     throw new HttpError(429, 'Too many failed attempts')
   }
-
-  const header = request.headers.get('authorization') ?? ''
-  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : ''
-  if (vaultConfigured() && token && tokenMatches(token)) return
-
   await db.query(
     `INSERT INTO auth_failures (client, window_start, count) VALUES ($1, $2, 1)
      ON CONFLICT (client) DO UPDATE SET
@@ -42,7 +45,7 @@ export async function requireDevice(db: Db, request: Request): Promise<void> {
        window_start = CASE WHEN $2 - auth_failures.window_start < $3 THEN auth_failures.window_start ELSE $2 END`,
     [client, now, FAILURE_WINDOW_MS],
   )
-  throw new HttpError(401, vaultConfigured() ? 'Unauthorized' : 'Vault not set up on the server')
+  throw new HttpError(401, 'Unauthorized')
 }
 
 /** Vercel Cron sends `Authorization: Bearer $CRON_SECRET`. */

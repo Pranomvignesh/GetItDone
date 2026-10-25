@@ -8,12 +8,12 @@ import {
   type PushResponse,
   type WireItem,
   type WireSetting,
-} from '../src/sync/protocol'
-import { requireCron, requireDevice } from './auth'
-import { getDb, type Db } from './db'
-import { HttpError, json, readJson, readText } from './http'
-import { pushToDevices } from './push'
-import { getScheduler, verifyJob } from './scheduler'
+} from '../src/sync/protocol.js'
+import { requireCron, requireDevice } from './auth.js'
+import { getDb, type Db } from './db.js'
+import { HttpError, json, readJson, readText } from './http.js'
+import { pushToDevices } from './push.js'
+import { getScheduler, verifyJob } from './scheduler.js'
 
 const DAY = 86_400_000
 /** Changes within this window are announced in one push (FR5). */

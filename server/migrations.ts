@@ -1,4 +1,4 @@
-import type { Db } from './db'
+import type { Db } from './db.js'
 
 /**
  * Schema migrations, applied in order and recorded in schema_migrations.

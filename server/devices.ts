@@ -1,8 +1,8 @@
-import type { VaultStatus } from '../src/sync/protocol'
-import { requireDevice, vaultConfigured } from './auth'
-import { getDb } from './db'
-import { HttpError, json, readJson } from './http'
-import { pushConfigured } from './push'
+import type { VaultStatus } from '../src/sync/protocol.js'
+import { requireDevice, vaultConfigured } from './auth.js'
+import { getDb } from './db.js'
+import { HttpError, json, readJson } from './http.js'
+import { pushConfigured } from './push.js'
 
 /** GET /api/vault/status: public; tells the locked screen whether the server has a vault yet. */
 export async function vaultStatus(): Promise<Response> {
